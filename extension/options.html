@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Echo360 Translator 设置</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; max-width: 720px; }
+      h1 { font-size: 20px; margin-bottom: 16px; }
+      label { display: block; margin-top: 12px; font-weight: 600; }
+      input, select { width: 100%; box-sizing: border-box; padding: 8px 10px; margin-top: 6px; }
+      button { margin-top: 16px; padding: 8px 14px; }
+      #status { margin-top: 12px; color: #0a7a2a; min-height: 20px; }
+      .hint { color: #666; font-size: 13px; margin-top: 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>Echo360 Online Subtitle Translator 设置</h1>
+    <label for="backendUrl">Backend URL</label>
+    <input id="backendUrl" placeholder="http://127.0.0.1:8765" />
+
+    <label for="apiKey">API Key</label>
+    <input id="apiKey" type="password" placeholder="sk-..." />
+
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="openai">openai</option>
+      <option value="deepseek">deepseek</option>
+      <option value="gemini">gemini</option>
+      <option value="deepl">deepl</option>
+    </select>
+
+    <label for="model">Model</label>
+    <input id="model" placeholder="deepseek-v4-flash" />
+
+    <label for="endpoint">Endpoint (optional)</label>
+    <input id="endpoint" placeholder="https://api.deepseek.com" />
+
+    <label for="target">Target Language</label>
+    <select id="target">
+      <option value="ZH">ZH (Chinese)</option>
+      <option value="EN">EN (English)</option>
+      <option value="JA">JA (Japanese)</option>
+      <option value="KO">KO (Korean)</option>
+      <option value="FR">FR (French)</option>
+      <option value="DE">DE (German)</option>
+      <option value="ES">ES (Spanish)</option>
+      <option value="IT">IT (Italian)</option>
+      <option value="PT">PT (Portuguese)</option>
+      <option value="RU">RU (Russian)</option>
+      <option value="AR">AR (Arabic)</option>
+      <option value="HI">HI (Hindi)</option>
+    </select>
+
+    <label for="maxParagraphs">Max Paragraphs</label>
+    <input id="maxParagraphs" type="number" min="1" step="1" />
+
+    <label for="maxChars">Max Chars</label>
+    <input id="maxChars" type="number" min="100" step="50" />
+
+    <label for="concurrency">Concurrency</label>
+    <input id="concurrency" type="number" min="1" step="1" />
+
+    <label for="rps">RPS</label>
+    <input id="rps" type="number" min="0" step="0.1" />
+
+    <label for="retries">Retries</label>
+    <input id="retries" type="number" min="0" step="1" />
+
+    <label for="timeout">Timeout (seconds)</label>
+    <input id="timeout" type="number" min="1" step="1" />
+    <div class="hint">仅当后端翻译脚本支持 `--request-timeout` 时生效。</div>
+
+    <label for="reasoningEffort">Reasoning Effort</label>
+    <select id="reasoningEffort">
+      <option value="">(none)</option>
+      <option value="minimal">minimal</option>
+      <option value="low">low</option>
+      <option value="medium">medium</option>
+      <option value="high">high</option>
+      <option value="xhigh">xhigh</option>
+      <option value="none">none</option>
+    </select>
+    <div class="hint">仅当后端翻译脚本支持 `--openai-reasoning-effort` 时生效。</div>
+
+    <button id="saveBtn">保存配置</button>
+    <div id="status"></div>
+    <script src="options.js"></script>
+  </body>
+  </html>
