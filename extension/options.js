@@ -40,9 +40,26 @@ async function loadConfig() {
   document.getElementById("reasoningEffort").value = config.reasoningEffort || "";
 }
 
+function isLocalBackendUrl(url) {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 async function saveConfig() {
+  const rawBackendUrl = document.getElementById("backendUrl").value.trim() || defaultConfig.backendUrl;
+  if (!isLocalBackendUrl(rawBackendUrl)) {
+    const status = document.getElementById("status");
+    status.textContent = "错误：Backend 地址只允许 localhost 或 127.0.0.1";
+    status.style.color = "red";
+    setTimeout(() => { status.textContent = ""; status.style.color = ""; }, 3000);
+    return;
+  }
   const config = {
-    backendUrl: document.getElementById("backendUrl").value.trim() || defaultConfig.backendUrl,
+    backendUrl: rawBackendUrl,
     apiKey: document.getElementById("apiKey").value.trim(),
     provider: document.getElementById("provider").value,
     model: document.getElementById("model").value.trim() || defaultConfig.model,

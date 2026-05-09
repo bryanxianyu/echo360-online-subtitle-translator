@@ -146,8 +146,6 @@ def build_translator_args(
         str(input_path),
         "--out",
         str(out_vtt),
-        "--key",
-        req.api_key,
         "--provider",
         req.provider,
         "--model",
@@ -230,12 +228,14 @@ def run_translation(
         args = build_translator_args(input_path, out_vtt, req, supported_args, warnings)
         logger.info("translator command: %s", " ".join(redact_args(args)))
         try:
+            proc_env = {**os.environ, "TRANSLATOR_API_KEY": req.api_key}
             proc = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                env=proc_env,
             )
             output_lines: list[str] = []
             assert proc.stdout is not None

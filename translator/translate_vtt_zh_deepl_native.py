@@ -981,7 +981,11 @@ def main():
     ap = argparse.ArgumentParser(description="Translate VTT using DeepL/OpenAI/DeepSeek API.")
     ap.add_argument("input", help="Path to input .vtt")
     ap.add_argument("--out", required=True, help="Path to output .vtt")
-    ap.add_argument("--key", required=True, help="API key for selected provider")
+    ap.add_argument(
+        "--key",
+        default=None,
+        help="API key for selected provider (fallback: TRANSLATOR_API_KEY env var)",
+    )
     ap.add_argument(
         "--provider",
         default="deepl",
@@ -1032,6 +1036,11 @@ def main():
         help="Concurrency for deferred repair phase; 1 means serial repair",
     )
     args = ap.parse_args()
+
+    if not args.key:
+        args.key = os.environ.get("TRANSLATOR_API_KEY", "")
+    if not args.key:
+        ap.error("--key is required (or set TRANSLATOR_API_KEY environment variable)")
 
     in_path = Path(args.input).expanduser().resolve()
     out_path = Path(args.out).expanduser().resolve()
