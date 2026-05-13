@@ -74,6 +74,10 @@ curl http://127.0.0.1:8765/health
 - timeout: `10`
 - reasoning_effort: 默认空
 
+语言补充：
+- 扩展目标语言支持 `ZH-HK` 与 `YUE`
+- 当 provider 为 `deepl` 时，不支持 `YUE`（请使用 AI provider，如 `deepseek`/`openai`/`gemini`）
+
 ## 后端翻译脚本调用方式
 
 后端直接构造参数列表，不通过 shell 拼接命令。默认调用方式：

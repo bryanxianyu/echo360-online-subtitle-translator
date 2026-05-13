@@ -1,5 +1,6 @@
 from functools import lru_cache
 import os
+import sys
 import subprocess
 import tempfile
 import hashlib
@@ -116,7 +117,7 @@ def get_translator_python() -> str:
     configured = os.getenv("TRANSLATOR_PYTHON_BIN", "").strip()
     if configured:
         return configured
-    return "python3"
+    return sys.executable or "python3"
 
 
 def redact_args(args: list[str]) -> list[str]:
@@ -146,6 +147,8 @@ def build_translator_args(
         str(input_path),
         "--out",
         str(out_vtt),
+        "--key",
+        req.api_key,
         "--provider",
         req.provider,
         "--model",

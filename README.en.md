@@ -74,6 +74,10 @@ On an Echo360 classroom page, the control panel appears at the bottom right. Use
 - timeout: `10`
 - reasoning_effort: empty by default
 
+Language notes:
+- Extension target options include `ZH-HK` and `YUE`
+- `deepl` does not support `YUE`; use an AI provider instead (`deepseek`/`openai`/`gemini`)
+
 ## Backend Translator Invocation
 
 The backend builds an argument list directly instead of shell-parsing a command string. By default it uses:

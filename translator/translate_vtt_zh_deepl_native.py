@@ -52,6 +52,8 @@ GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 AI_LINE_SEPARATOR = "\n<<<VTT_TRANSLATOR_LINE_BREAK_8F3B>>>\n"
+YUE_TARGET_CODES = {"YUE", "CANTONESE"}
+TRADITIONAL_CHINESE_TARGET_CODES = {"ZH-HK"}
 
 TIMECODE_RE = re.compile(r"^\s*\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}")
 WEBVTT_RE = re.compile(r"^\s*WEBVTT", re.IGNORECASE)
@@ -217,6 +219,28 @@ def split_voice_tag(line: str) -> tuple[str, str, str]:
     return match.group("prefix") or "", (match.group("body") or "").strip(), match.group("suffix") or ""
 
 
+def _format_ai_target_language(target_lang: str) -> str:
+    code = (target_lang or "").strip().upper()
+    if code in YUE_TARGET_CODES:
+        return (
+            "Traditional Cantonese (Yue Chinese), using Traditional Chinese characters "
+            "and natural spoken Cantonese phrasing"
+        )
+    if code in TRADITIONAL_CHINESE_TARGET_CODES:
+        return (
+            "Traditional Chinese, using native Traditional Chinese wording, punctuation, "
+            "and style that feels natural to Traditional Chinese readers"
+        )
+    return target_lang
+
+
+def _resolve_deepl_target_lang(target_lang: str) -> str:
+    code = (target_lang or "").strip().upper()
+    if code in TRADITIONAL_CHINESE_TARGET_CODES:
+        return "ZH-HANT"
+    return target_lang
+
+
 def deepl_translate_batch(
     texts: List[str],
     endpoint: str,
@@ -228,8 +252,9 @@ def deepl_translate_batch(
     request_timeout: float = 90.0,
 ) -> List[str]:
     params = [("text", t) for t in texts]
+    resolved_target_lang = _resolve_deepl_target_lang(target_lang)
     data = {
-        "target_lang": target_lang,
+        "target_lang": resolved_target_lang,
         "preserve_formatting": "1",
         "split_sentences": "1",
     }
@@ -305,8 +330,9 @@ def _parse_indexed_json_text(raw_text: str, expected_len: int) -> dict[int, str]
 
 
 def _build_delimited_prompt(texts: List[str], target_lang: str) -> tuple[str, str]:
+    target_text = _format_ai_target_language(target_lang)
     system_text = (
-        f"You are a professional {target_lang} native translator who needs to fluently translate text into {target_lang}.\n\n"
+        f"You are a professional {target_text} native translator who needs to fluently translate text into {target_text}.\n\n"
         "## Translation Rules\n"
         "1. Output only translated content, with no explanations or extra text.\n"
         "2. Keep exactly the same number of paragraphs/items as input.\n"
@@ -318,7 +344,7 @@ def _build_delimited_prompt(texts: List[str], target_lang: str) -> tuple[str, st
         f"- Multi-item input: use '{AI_LINE_SEPARATOR.strip()}' as the separator between translated items."
     )
     user_text = (
-        f"Translate to {target_lang}. Return only translation text with exact item count and order.\n"
+        f"Translate to {target_text}. Return only translation text with exact item count and order.\n"
         "Input:\n"
         f"{AI_LINE_SEPARATOR.join(texts)}"
     )
@@ -326,6 +352,7 @@ def _build_delimited_prompt(texts: List[str], target_lang: str) -> tuple[str, st
 
 
 def _build_indexed_json_prompt(texts: List[str], target_lang: str) -> tuple[str, str]:
+    target_text = _format_ai_target_language(target_lang)
     payload = [{"i": i, "text": t} for i, t in enumerate(texts)]
     system_text = (
         "You are a subtitle translation engine. Output ONLY a JSON array. "
@@ -333,7 +360,7 @@ def _build_indexed_json_prompt(texts: List[str], target_lang: str) -> tuple[str,
         "Do not drop, merge, reorder, or add items."
     )
     user_text = (
-        f"Translate each text to {target_lang}. Keep indexes unchanged.\n"
+        f"Translate each text to {target_text}. Keep indexes unchanged.\n"
         f"Input JSON:\n{json.dumps(payload, ensure_ascii=False)}\n"
         "Return JSON array only."
     )
@@ -981,11 +1008,7 @@ def main():
     ap = argparse.ArgumentParser(description="Translate VTT using DeepL/OpenAI/DeepSeek API.")
     ap.add_argument("input", help="Path to input .vtt")
     ap.add_argument("--out", required=True, help="Path to output .vtt")
-    ap.add_argument(
-        "--key",
-        default=None,
-        help="API key for selected provider (fallback: TRANSLATOR_API_KEY env var)",
-    )
+    ap.add_argument("--key", required=True, help="API key for selected provider")
     ap.add_argument(
         "--provider",
         default="deepl",
@@ -998,7 +1021,7 @@ def main():
         help="Provider endpoint (DeepL Free/Pro or OpenAI-compatible Responses endpoint)",
     )
     ap.add_argument("--model", default="", help="Model name for openai/deepseek")
-    ap.add_argument("--target", default="ZH", help="Target language code (e.g. ZH / EN / JA)")
+    ap.add_argument("--target", default="ZH", help="Target language code (e.g. ZH / ZH-HK / YUE / EN / JA)")
     ap.add_argument("--bilingual", action="store_true", help="Keep original + translated line")
     ap.add_argument("--every", type=int, default=10, help="Print progress every N lines")
     ap.add_argument("--chunk", type=int, default=None, help="Number of lines per API request")
@@ -1037,11 +1060,6 @@ def main():
     )
     args = ap.parse_args()
 
-    if not args.key:
-        args.key = os.environ.get("TRANSLATOR_API_KEY", "")
-    if not args.key:
-        ap.error("--key is required (or set TRANSLATOR_API_KEY environment variable)")
-
     in_path = Path(args.input).expanduser().resolve()
     out_path = Path(args.out).expanduser().resolve()
     if not in_path.exists():
@@ -1050,6 +1068,9 @@ def main():
 
     print(f"Reading: {in_path}")
     lines = read_text(in_path)
+    if args.provider == "deepl" and args.target.strip().upper() in YUE_TARGET_CODES:
+        print("ERROR: DeepL does not support Traditional Cantonese (YUE). Use an AI provider.", file=sys.stderr)
+        sys.exit(1)
 
     defaults = provider_defaults(args.provider)
     resolved_endpoint = args.endpoint
