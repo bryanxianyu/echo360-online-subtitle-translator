@@ -36,6 +36,51 @@
     return msg.replace(/^Error:\s*/, "");
   }
 
+  function createDirectTranslateJob(payload) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: "direct-translate-async", payload },
+        (response) => {
+          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+          if (!response || !response.ok) return reject(new Error(response?.error || "direct translate failed"));
+          resolve(response.data);
+        }
+      );
+    });
+  }
+
+  function readDirectTranslateJob(jobId) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { type: "direct-translate-job", jobId },
+        (response) => {
+          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
+          if (!response || !response.ok) return reject(new Error(response?.error || "direct translate job failed"));
+          resolve(response.data);
+        }
+      );
+    });
+  }
+
+  async function waitDirectJob(jobId, options = {}) {
+    const maxMs = 8 * 60 * 1000;
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+      if (options.isActive && !options.isActive()) {
+        throw new Error("stale job");
+      }
+      const job = await readDirectTranslateJob(jobId);
+      const p = job.progress || { current: 0, total: 0 };
+      if (job.status === "running" && p.total > 0) {
+        options.onProgress?.(p.current, p.total);
+      }
+      if (job.status === "completed") return job.result;
+      if (job.status === "failed") throw new Error(job.error || "翻译失败");
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    throw new Error("翻译任务超时（超过 8 分钟）");
+  }
+
   async function waitJob(backendUrl, jobId, options = {}) {
     const maxMs = 8 * 60 * 1000;
     const start = Date.now();
@@ -60,5 +105,7 @@
     proxyTranslateSync,
     friendlyErrorMessage,
     waitJob,
+    createDirectTranslateJob,
+    waitDirectJob,
   };
 })();

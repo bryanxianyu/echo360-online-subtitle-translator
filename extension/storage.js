@@ -51,6 +51,8 @@
       Number(cfg.maxParagraphs) || 0,
       Number(cfg.maxChars) || 0,
       cfg.reasoningEffort || "",
+      cfg.deepseekThinkingMode || "",
+      cfg.deeplFormality || "",
     ].join("|");
   }
 
@@ -59,6 +61,7 @@
     if (value) return value;
     return {
       apiKey: "",
+      useLocalBackend: false,
       backendUrl: "http://127.0.0.1:8765",
       provider: "deepseek",
       model: "deepseek-v4-flash",
@@ -71,6 +74,11 @@
       retries: 1,
       timeout: 10,
       reasoningEffort: "",
+      fallbackMode: "immediate",
+      repairConcurrency: 1,
+      slowSplitThreshold: 0,
+      deepseekThinkingMode: "omit",
+      deeplFormality: "",
     };
   }
 

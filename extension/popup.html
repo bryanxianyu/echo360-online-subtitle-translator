@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Echo360 Translator</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f3ec;
+        --ink: #171411;
+        --muted: #6e6258;
+        --line: #d8cfc3;
+        --field: #fffdf8;
+        --accent: #0d5c63;
+        --accent-ink: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 320px;
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: ui-serif, Georgia, "Times New Roman", serif;
+      }
+
+      h1 {
+        margin: 0 0 14px;
+        font-size: 17px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+
+      label {
+        display: block;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      select,
+      input {
+        width: 100%;
+        margin-top: 6px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--field);
+        color: var(--ink);
+        font: 14px/1.25 ui-sans-serif, "Avenir Next", "Helvetica Neue", sans-serif;
+      }
+
+      button {
+        width: 100%;
+        margin-top: 16px;
+        padding: 10px 12px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        cursor: pointer;
+        font: 700 14px/1 ui-sans-serif, "Avenir Next", "Helvetica Neue", sans-serif;
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.7;
+      }
+
+      #status {
+        min-height: 18px;
+        margin-top: 10px;
+        color: var(--accent);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Echo360 Translator</h1>
+
+    <label for="modelPreset">模型</label>
+    <select id="modelPreset"></select>
+
+    <label for="apiKey">API Key</label>
+    <input id="apiKey" type="password" autocomplete="off" placeholder="sk-..." />
+
+    <button id="saveBtn">保存</button>
+    <div id="status"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -9,6 +9,7 @@
       h1 { font-size: 20px; margin-bottom: 16px; }
       label { display: block; margin-top: 12px; font-weight: 600; }
       input, select { width: 100%; box-sizing: border-box; padding: 8px 10px; margin-top: 6px; }
+      input[type="checkbox"] { width: auto; margin-right: 8px; }
       button { margin-top: 16px; padding: 8px 14px; }
       #status { margin-top: 12px; color: #0a7a2a; min-height: 20px; }
       .hint { color: #666; font-size: 13px; margin-top: 6px; }
@@ -16,6 +17,12 @@
   </head>
   <body>
     <h1>Echo360 Online Subtitle Translator 设置</h1>
+    <label>
+      <input id="useLocalBackend" type="checkbox" />
+      使用本地后端
+    </label>
+    <div class="hint">关闭时扩展会直接调用所选 Provider API，适合 Chrome Store 测试版。</div>
+
     <label for="backendUrl">Backend URL</label>
     <input id="backendUrl" placeholder="http://127.0.0.1:8765" />
 
@@ -83,7 +90,37 @@
       <option value="xhigh">xhigh</option>
       <option value="none">none</option>
     </select>
-    <div class="hint">仅当后端翻译脚本支持 `--openai-reasoning-effort` 时生效。</div>
+    <div class="hint">OpenAI Provider 生效；本地后端需翻译脚本支持 `--openai-reasoning-effort`。</div>
+
+    <label for="fallbackMode">Fallback Mode</label>
+    <select id="fallbackMode">
+      <option value="immediate">immediate</option>
+      <option value="deferred">deferred</option>
+      <option value="deferred-fastpath">deferred-fastpath</option>
+    </select>
+    <div class="hint">直连 Provider 时生效。deferred 模式会先跑主流程，再集中修复失败 batch。</div>
+
+    <label for="repairConcurrency">Repair Concurrency</label>
+    <input id="repairConcurrency" type="number" min="1" step="1" />
+
+    <label for="slowSplitThreshold">Slow Split Threshold (seconds)</label>
+    <input id="slowSplitThreshold" type="number" min="0" step="0.1" />
+    <div class="hint">直连 AI Provider 时生效。大于 0 时，慢 batch 会被拆分重试。</div>
+
+    <label for="deepseekThinkingMode">DeepSeek Thinking</label>
+    <select id="deepseekThinkingMode">
+      <option value="omit">API default (omit field)</option>
+      <option value="disabled">disabled</option>
+    </select>
+
+    <label for="deeplFormality">DeepL Formality</label>
+    <select id="deeplFormality">
+      <option value="">(default)</option>
+      <option value="more">more</option>
+      <option value="less">less</option>
+      <option value="prefer_more">prefer_more</option>
+      <option value="prefer_less">prefer_less</option>
+    </select>
 
     <button id="saveBtn">保存配置</button>
     <div id="status"></div>

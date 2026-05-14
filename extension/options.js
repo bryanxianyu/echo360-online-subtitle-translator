@@ -2,6 +2,7 @@ const STORAGE_KEY = "echo360TranslatorConfig";
 
 const defaultConfig = {
   apiKey: "",
+  useLocalBackend: false,
   backendUrl: "http://127.0.0.1:8765",
   provider: "deepseek",
   model: "deepseek-v4-flash",
@@ -13,12 +14,27 @@ const defaultConfig = {
   rps: 0,
   retries: 1,
   timeout: 10,
-  reasoningEffort: ""
+  reasoningEffort: "",
+  fallbackMode: "immediate",
+  repairConcurrency: 1,
+  slowSplitThreshold: 0,
+  deepseekThinkingMode: "omit",
+  deeplFormality: ""
 };
+
+const providerDefaults = {
+  openai: { model: "gpt-5-nano", endpoint: "" },
+  deepseek: { model: "deepseek-v4-flash", endpoint: "" },
+  gemini: { model: "gemini-2.5-flash-lite", endpoint: "" },
+  deepl: { model: "", endpoint: "" }
+};
+
+const knownDefaultModels = new Set(Object.values(providerDefaults).map((item) => item.model).filter(Boolean));
 
 async function loadConfig() {
   const { [STORAGE_KEY]: value } = await chrome.storage.local.get(STORAGE_KEY);
   const config = { ...defaultConfig, ...(value || {}) };
+  document.getElementById("useLocalBackend").checked = !!config.useLocalBackend;
   document.getElementById("backendUrl").value = config.backendUrl;
   document.getElementById("apiKey").value = config.apiKey;
   document.getElementById("provider").value = config.provider;
@@ -38,6 +54,24 @@ async function loadConfig() {
   document.getElementById("retries").value = String(config.retries);
   document.getElementById("timeout").value = String(config.timeout);
   document.getElementById("reasoningEffort").value = config.reasoningEffort || "";
+  document.getElementById("fallbackMode").value = config.fallbackMode || "immediate";
+  document.getElementById("repairConcurrency").value = String(config.repairConcurrency || 1);
+  document.getElementById("slowSplitThreshold").value = String(config.slowSplitThreshold || 0);
+  document.getElementById("deepseekThinkingMode").value = config.deepseekThinkingMode || "omit";
+  document.getElementById("deeplFormality").value = config.deeplFormality || "";
+}
+
+function applyProviderDefaults() {
+  const provider = document.getElementById("provider").value;
+  const defaults = providerDefaults[provider] || providerDefaults.deepseek;
+  const modelEl = document.getElementById("model");
+  const endpointEl = document.getElementById("endpoint");
+  if (!modelEl.value.trim() || knownDefaultModels.has(modelEl.value.trim())) {
+    modelEl.value = defaults.model;
+  }
+  if (!endpointEl.value.trim()) {
+    endpointEl.value = defaults.endpoint;
+  }
 }
 
 function isLocalBackendUrl(url) {
@@ -50,8 +84,9 @@ function isLocalBackendUrl(url) {
 }
 
 async function saveConfig() {
+  const useLocalBackend = document.getElementById("useLocalBackend").checked;
   const rawBackendUrl = document.getElementById("backendUrl").value.trim() || defaultConfig.backendUrl;
-  if (!isLocalBackendUrl(rawBackendUrl)) {
+  if (useLocalBackend && !isLocalBackendUrl(rawBackendUrl)) {
     const status = document.getElementById("status");
     status.textContent = "错误：Backend 地址只允许 localhost 或 127.0.0.1";
     status.style.color = "red";
@@ -59,10 +94,11 @@ async function saveConfig() {
     return;
   }
   const config = {
+    useLocalBackend,
     backendUrl: rawBackendUrl,
     apiKey: document.getElementById("apiKey").value.trim(),
     provider: document.getElementById("provider").value,
-    model: document.getElementById("model").value.trim() || defaultConfig.model,
+    model: document.getElementById("model").value.trim(),
     endpoint: document.getElementById("endpoint").value.trim(),
     target: (document.getElementById("target").value || "ZH").toUpperCase(),
     maxParagraphs: Math.max(1, Number(document.getElementById("maxParagraphs").value) || 6),
@@ -71,7 +107,12 @@ async function saveConfig() {
     rps: Math.max(0, Number(document.getElementById("rps").value) || 0),
     retries: Math.max(0, Number(document.getElementById("retries").value) || 1),
     timeout: Math.max(1, Number(document.getElementById("timeout").value) || 10),
-    reasoningEffort: document.getElementById("reasoningEffort").value || ""
+    reasoningEffort: document.getElementById("reasoningEffort").value || "",
+    fallbackMode: document.getElementById("fallbackMode").value || "immediate",
+    repairConcurrency: Math.max(1, Number(document.getElementById("repairConcurrency").value) || 1),
+    slowSplitThreshold: Math.max(0, Number(document.getElementById("slowSplitThreshold").value) || 0),
+    deepseekThinkingMode: document.getElementById("deepseekThinkingMode").value || "omit",
+    deeplFormality: document.getElementById("deeplFormality").value || ""
   };
   await chrome.storage.local.set({ [STORAGE_KEY]: config });
   const status = document.getElementById("status");
@@ -81,5 +122,6 @@ async function saveConfig() {
   }, 1200);
 }
 
+document.getElementById("provider").addEventListener("change", applyProviderDefaults);
 document.getElementById("saveBtn").addEventListener("click", saveConfig);
 loadConfig();
