@@ -328,12 +328,13 @@ def _run_job(job_id: str, req: TranslateAsyncRequest) -> None:
             }
             job["updated_at"] = int(time.time())
     except Exception as exc:
+        error_text = getattr(exc, "detail", None) or str(exc) or exc.__class__.__name__
         with _jobs_lock:
             job = _jobs.get(job_id)
             if not job:
                 return
             job["status"] = "failed"
-            job["error"] = str(exc)
+            job["error"] = error_text
             job["updated_at"] = int(time.time())
 
 

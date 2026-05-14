@@ -1,4 +1,5 @@
 const STORAGE_KEY = "echo360TranslatorConfig";
+const extensionApi = window.Echo360ExtensionApi;
 
 const defaultConfig = {
   apiKey: "",
@@ -17,7 +18,7 @@ const defaultConfig = {
 };
 
 async function loadConfig() {
-  const { [STORAGE_KEY]: value } = await chrome.storage.local.get(STORAGE_KEY);
+  const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
   const config = { ...defaultConfig, ...(value || {}) };
   document.getElementById("backendUrl").value = config.backendUrl;
   document.getElementById("apiKey").value = config.apiKey;
@@ -73,7 +74,7 @@ async function saveConfig() {
     timeout: Math.max(1, Number(document.getElementById("timeout").value) || 10),
     reasoningEffort: document.getElementById("reasoningEffort").value || ""
   };
-  await chrome.storage.local.set({ [STORAGE_KEY]: config });
+  await extensionApi.storage.local.set({ [STORAGE_KEY]: config });
   const status = document.getElementById("status");
   status.textContent = "已保存";
   setTimeout(() => {

@@ -1,6 +1,7 @@
 (() => {
   const ns = window.Echo360Translator;
   const { DEFAULT_SUBTITLE_SIZE } = ns.constants;
+  const extensionApi = ns.browserApi;
 
   let activeRunId = null;
   let isTranslating = false;
@@ -230,10 +231,10 @@
     }
 
     const firstRunKey = "echo360TranslatorFirstRunShown";
-    const firstRun = await chrome.storage.local.get(firstRunKey);
+    const firstRun = await extensionApi.storage.local.get(firstRunKey);
     if (!firstRun[firstRunKey]) {
       ns.ui.setStatusText("首次使用：1) 填 API Key 2) 选语言 3) 点加载翻译字幕");
-      await chrome.storage.local.set({ [firstRunKey]: true });
+      await extensionApi.storage.local.set({ [firstRunKey]: true });
     }
   }
 

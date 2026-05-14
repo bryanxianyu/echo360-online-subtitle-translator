@@ -57,6 +57,7 @@
       ],
       "all_frames": true,
       "js": [
+        "browser_api.js",
         "constants.js",
         "vtt.js",
         "storage.js",
