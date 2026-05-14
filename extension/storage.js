@@ -7,6 +7,7 @@
     DEFAULT_SUBTITLE_SIZE,
     SIZE_MAP,
   } = ns.constants;
+  const extensionApi = ns.browserApi;
 
   function getContextKey() {
     const m = location.pathname.match(/\/lesson\/([^/]+)/);
@@ -15,7 +16,7 @@
 
   async function getPrefs() {
     const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
-    const obj = await chrome.storage.local.get(key);
+    const obj = await extensionApi.storage.local.get(key);
     const prefs = obj[key] || { enabled: true, size: DEFAULT_SUBTITLE_SIZE, bilingual: false, reverseOrder: false };
     if (prefs.size === "tiny") prefs.size = "medium";
     else if (!SIZE_MAP[prefs.size]) prefs.size = DEFAULT_SUBTITLE_SIZE;
@@ -24,7 +25,7 @@
 
   async function savePrefs(prefs) {
     const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
-    await chrome.storage.local.set({ [key]: prefs });
+    await extensionApi.storage.local.set({ [key]: prefs });
   }
 
   async function sha256Text(text) {
@@ -34,12 +35,12 @@
   }
 
   async function getCacheStore() {
-    const obj = await chrome.storage.local.get(CACHE_KEY);
+    const obj = await extensionApi.storage.local.get(CACHE_KEY);
     return obj[CACHE_KEY] && typeof obj[CACHE_KEY] === "object" ? obj[CACHE_KEY] : null;
   }
 
   async function setCacheStore(entryOrNull) {
-    await chrome.storage.local.set({ [CACHE_KEY]: entryOrNull || null });
+    await extensionApi.storage.local.set({ [CACHE_KEY]: entryOrNull || null });
   }
 
   function buildConfigSignature(cfg) {
@@ -57,7 +58,7 @@
   }
 
   async function getConfig() {
-    const { [STORAGE_KEY]: value } = await chrome.storage.local.get(STORAGE_KEY);
+    const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
     if (value) return value;
     return {
       apiKey: "",
@@ -83,7 +84,7 @@
   }
 
   async function saveConfig(config) {
-    await chrome.storage.local.set({ [STORAGE_KEY]: config });
+    await extensionApi.storage.local.set({ [STORAGE_KEY]: config });
   }
 
   async function askApiKeyIfNeeded(config) {

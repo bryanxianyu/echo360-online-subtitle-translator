@@ -1,31 +1,12 @@
-importScripts("direct_translator.js");
+importScripts("browser_api.js", "direct_translator.js");
 
+const extensionApi = globalThis.Echo360ExtensionApi;
 const DIRECT_CACHE_KEY = "echo360DirectTranslateCache";
 const DIRECT_CACHE_MAX_ENTRIES = 10;
 const DIRECT_CACHE_MAX_CHARS = 5_000_000;
 const DIRECT_JOB_TTL_MS = 60 * 60 * 1000;
 const DIRECT_JOB_MAX_COUNT = 100;
 const directJobs = new Map();
-
-function storageGetLocal(key) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get(key, (result) => {
-      const err = chrome.runtime.lastError;
-      if (err) reject(new Error(err.message || String(err)));
-      else resolve(result);
-    });
-  });
-}
-
-function storageSetLocal(items) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.set(items, () => {
-      const err = chrome.runtime.lastError;
-      if (err) reject(new Error(err.message || String(err)));
-      else resolve();
-    });
-  });
-}
 
 async function sha256Text(text) {
   const bytes = new TextEncoder().encode(text);
@@ -51,9 +32,13 @@ async function buildDirectCacheKey(payload) {
 }
 
 async function getDirectCache() {
-  const obj = await storageGetLocal(DIRECT_CACHE_KEY);
+  const obj = await extensionApi.storage.local.get(DIRECT_CACHE_KEY);
   const cache = obj[DIRECT_CACHE_KEY];
   return cache && typeof cache === "object" ? cache : {};
+}
+
+async function setDirectCache(cache) {
+  await extensionApi.storage.local.set({ [DIRECT_CACHE_KEY]: pruneDirectCache(cache) });
 }
 
 async function getDirectCacheEntry(cacheKey) {
@@ -85,10 +70,6 @@ function pruneDirectCache(cache) {
   return next;
 }
 
-async function setDirectCache(cache) {
-  await storageSetLocal({ [DIRECT_CACHE_KEY]: pruneDirectCache(cache) });
-}
-
 async function setDirectCacheEntry(cacheKey, translatedVtt) {
   if (!translatedVtt) return;
   const cache = await getDirectCache();
@@ -101,7 +82,7 @@ async function setDirectCacheEntry(cacheKey, translatedVtt) {
   try {
     await setDirectCache(cache);
   } catch (_) {
-    await storageSetLocal({
+    await extensionApi.storage.local.set({
       [DIRECT_CACHE_KEY]: pruneDirectCache({ [cacheKey]: cache[cacheKey] }),
     });
   }
@@ -163,64 +144,58 @@ function pruneDirectJobs() {
   }
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message) return false;
+async function proxyBackendRequest(message) {
+  const { backendUrl } = message;
+  if (!backendUrl) {
+    return { ok: false, error: "missing backendUrl" };
+  }
+
+  try {
+    const base = backendUrl.replace(/\/+$/, "");
+    const path = message.type === "proxy-translate" ? "/translate" : (message.path || "/health");
+    const method = message.type === "proxy-translate" ? "POST" : (message.method || "GET");
+    const headers = { "Content-Type": "application/json", ...(message.headers || {}) };
+    const init = { method, headers };
+    if (message.payload != null) {
+      init.body = JSON.stringify(message.payload);
+    }
+    const resp = await fetch(`${base}${path}`, init);
+    const text = await resp.text();
+    if (!resp.ok) {
+      return { ok: false, error: `HTTP ${resp.status} ${text}` };
+    }
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      return { ok: false, error: "backend returned non-JSON response" };
+    }
+    return { ok: true, data };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  }
+}
+
+extensionApi.runtime.addOnMessageListener(async (message) => {
+  if (!message) return undefined;
 
   if (message.type === "direct-translate-async") {
     pruneDirectJobs();
     const jobId = createDirectJob(message.payload || {});
-    sendResponse({ ok: true, data: { job_id: jobId } });
-    return false;
+    return { ok: true, data: { job_id: jobId } };
   }
 
   if (message.type === "direct-translate-job") {
     const job = directJobs.get(message.jobId);
     if (!job) {
-      sendResponse({ ok: false, error: "job not found" });
-      return false;
+      return { ok: false, error: "job not found" };
     }
-    sendResponse({ ok: true, data: job });
-    return false;
+    return { ok: true, data: job };
   }
 
   if (message.type !== "proxy-translate" && message.type !== "proxy-request") {
-    return false;
+    return undefined;
   }
 
-  const { backendUrl } = message;
-  if (!backendUrl) {
-    sendResponse({ ok: false, error: "missing backendUrl" });
-    return false;
-  }
-
-  (async () => {
-    try {
-      const base = backendUrl.replace(/\/+$/, "");
-      const path = message.type === "proxy-translate" ? "/translate" : (message.path || "/health");
-      const method = message.type === "proxy-translate" ? "POST" : (message.method || "GET");
-      const headers = { "Content-Type": "application/json", ...(message.headers || {}) };
-      const init = { method, headers };
-      if (message.payload != null) {
-        init.body = JSON.stringify(message.payload);
-      }
-      const resp = await fetch(`${base}${path}`, init);
-      const text = await resp.text();
-      if (!resp.ok) {
-        sendResponse({ ok: false, error: `HTTP ${resp.status} ${text}` });
-        return;
-      }
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (_) {
-        sendResponse({ ok: false, error: "backend returned non-JSON response" });
-        return;
-      }
-      sendResponse({ ok: true, data });
-    } catch (err) {
-      sendResponse({ ok: false, error: err?.message || String(err) });
-    }
-  })();
-
-  return true;
+  return proxyBackendRequest(message);
 });

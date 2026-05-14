@@ -1,30 +1,17 @@
 (() => {
   const ns = window.Echo360Translator;
+  const extensionApi = ns.browserApi;
 
-  function proxyRequest(backendUrl, path, method = "GET", payload = null) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { type: "proxy-request", backendUrl, path, method, payload },
-        (response) => {
-          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-          if (!response || !response.ok) return reject(new Error(response?.error || "request failed"));
-          resolve(response.data);
-        }
-      );
-    });
+  async function proxyRequest(backendUrl, path, method = "GET", payload = null) {
+    const response = await extensionApi.runtime.sendMessage({ type: "proxy-request", backendUrl, path, method, payload });
+    if (!response || !response.ok) throw new Error(response?.error || "request failed");
+    return response.data;
   }
 
-  function proxyTranslateSync(backendUrl, payload) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        { type: "proxy-translate", backendUrl, payload },
-        (response) => {
-          if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
-          if (!response || !response.ok) return reject(new Error(response?.error || "sync translate failed"));
-          resolve(response.data);
-        }
-      );
-    });
+  async function proxyTranslateSync(backendUrl, payload) {
+    const response = await extensionApi.runtime.sendMessage({ type: "proxy-translate", backendUrl, payload });
+    if (!response || !response.ok) throw new Error(response?.error || "sync translate failed");
+    return response.data;
   }
 
   function friendlyErrorMessage(raw) {

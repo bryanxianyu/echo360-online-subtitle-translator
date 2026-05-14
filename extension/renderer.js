@@ -2,6 +2,7 @@
   const ns = window.Echo360Translator;
   const {
     DEFAULT_SUBTITLE_SIZE,
+    SAFARI_SIZE_MAP,
     SIZE_MAP,
   } = ns.constants;
 
@@ -12,16 +13,69 @@
   let lastRenderPrefs = { bilingual: false, size: DEFAULT_SUBTITLE_SIZE, reverseOrder: false };
   let lastRenderSourceMeta = null;
   let pendingMount = null;
+  let fullscreenListenerInstalled = false;
+
+  function isSafari() {
+    return /^((?!chrome|android).)*safari/i.test(navigator.userAgent || "");
+  }
+
+  function isFullscreen() {
+    return !!(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.webkitCurrentFullScreenElement ||
+      ns.video.getAllVideos().some((video) => video.webkitDisplayingFullscreen)
+    );
+  }
+
+  function ensureFullscreenListener() {
+    if (fullscreenListenerInstalled) return;
+    fullscreenListenerInstalled = true;
+    ["fullscreenchange", "webkitfullscreenchange", "webkitbeginfullscreen", "webkitendfullscreen"].forEach((eventName) => {
+      document.addEventListener(eventName, () => {
+        applySubtitleSize(lastRenderPrefs.size || DEFAULT_SUBTITLE_SIZE);
+      }, true);
+    });
+  }
 
   function applySubtitleSize(size) {
-    const pct = SIZE_MAP[size] || SIZE_MAP[DEFAULT_SUBTITLE_SIZE];
-    const lineHeight = "0.95";
+    const normalizedSize = SIZE_MAP[size] ? size : DEFAULT_SUBTITLE_SIZE;
+    const pct = isSafari()
+      ? (SAFARI_SIZE_MAP[normalizedSize] || SAFARI_SIZE_MAP[DEFAULT_SUBTITLE_SIZE])
+      : (SIZE_MAP[normalizedSize] || SIZE_MAP[DEFAULT_SUBTITLE_SIZE]);
+    const lineHeight = isSafari() && isFullscreen() ? "1.08" : "0.95";
+    ensureFullscreenListener();
     if (!styleEl) {
       styleEl = document.createElement("style");
       styleEl.id = "echo360-translator-style";
       document.head.appendChild(styleEl);
     }
-    styleEl.textContent = `video::cue { font-size: ${pct} !important; line-height: ${lineHeight} !important; }`;
+    styleEl.textContent = `
+      video::cue {
+        font-size: ${pct} !important;
+        line-height: ${lineHeight} !important;
+      }
+      video:fullscreen::cue {
+        font-size: ${pct} !important;
+        line-height: ${lineHeight} !important;
+      }
+      video:-webkit-full-screen::cue {
+        font-size: ${pct} !important;
+        line-height: ${lineHeight} !important;
+      }
+      video::-webkit-media-text-track-display {
+        font-size: ${pct} !important;
+        line-height: ${lineHeight} !important;
+      }
+      video:fullscreen::-webkit-media-text-track-display {
+        font-size: ${pct} !important;
+        line-height: ${lineHeight} !important;
+      }
+      video:-webkit-full-screen::-webkit-media-text-track-display {
+        font-size: ${pct} !important;
+        line-height: ${lineHeight} !important;
+      }
+    `;
   }
 
   function shouldShowTranslatedTrackForVideo(video, videos = ns.video.getAllVideos()) {
@@ -166,7 +220,7 @@
     lastRenderSourceMeta = resolvedSourceMeta;
 
     cleanupTranslatedTracks();
-    const blob = new Blob([payload], { type: "text/vtt" });
+    const blob = new Blob(["\ufeff", payload], { type: "text/vtt;charset=utf-8" });
     const track = document.createElement("track");
     track.label = bilingual ? "翻译字幕 (双语)" : "翻译字幕";
     track.srclang = "zh";
