@@ -38,10 +38,28 @@ page_probe.js      MAIN-world Echo360/React/XHR probe for media-id hints
 
 ## Backend Setup
 
+First, go to the repo root:
+
 ```bash
-cd /Users/bryanxianyu/Desktop/echo360-online-subtitle-translator/backend
+cd /path/to/echo360-online-subtitle-translator
+```
+
+macOS / Linux:
+
+```bash
+cd backend
 python -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8765 --reload
+```
+
+Windows (PowerShell):
+
+```powershell
+cd backend
+py -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8765 --reload
 ```
@@ -52,12 +70,18 @@ Health check:
 curl http://127.0.0.1:8765/health
 ```
 
+Windows (PowerShell) health check:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8765/health
+```
+
 ## Extension Setup
 
 1. Open `chrome://extensions`.
 2. Enable Developer mode.
 3. Click `Load unpacked`.
-4. Select `/Users/bryanxianyu/Desktop/echo360-online-subtitle-translator/extension`.
+4. Select the `extension/` directory in this repository.
 
 On an Echo360 classroom page, the control panel appears at the bottom right. Use `加载翻译字幕` for normal loading and `重新翻译` to clear the current cache and rerun translation.
 
