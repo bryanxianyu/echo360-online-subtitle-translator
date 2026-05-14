@@ -64,6 +64,11 @@
       bilingual: false,
       timeout: Number(cfg.timeout) || null,
       reasoning_effort: cfg.reasoningEffort || null,
+      fallback_mode: cfg.fallbackMode || "immediate",
+      repair_concurrency: Number(cfg.repairConcurrency) || 1,
+      slow_split_threshold: Number(cfg.slowSplitThreshold) || 0,
+      deepseek_thinking_mode: cfg.deepseekThinkingMode || "omit",
+      deepl_formality: cfg.deeplFormality || "",
       force_refresh: !!forceRefresh,
     };
   }
@@ -83,6 +88,21 @@
     }
   }
 
+  async function translateInExtension(payload, options = {}) {
+    const create = await ns.backendClient.createDirectTranslateJob(payload);
+    return await ns.backendClient.waitDirectJob(create.job_id, {
+      isActive: options.isActive || (() => true),
+      onProgress: options.onProgress || (() => {}),
+    });
+  }
+
+  async function translateWithConfig(cfg, backendUrl, payload, options = {}) {
+    if (cfg.useLocalBackend) {
+      return await translateWithBackend(backendUrl, payload, options);
+    }
+    return await translateInExtension(payload, options);
+  }
+
   async function buildCacheKey(cfg, sourceId, vttText) {
     const vttHash = await ns.storage.sha256Text(vttText);
     const sourceKey = sourceId || `${location.href}#${vttHash}`;
@@ -98,6 +118,8 @@
     resolveSourceVtt,
     buildTranslatePayload,
     translateWithBackend,
+    translateInExtension,
+    translateWithConfig,
     buildCacheKey,
   };
 })();

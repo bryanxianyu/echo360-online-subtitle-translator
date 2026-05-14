@@ -38,10 +38,28 @@ page_probe.js           MAIN world 的 Echo360/React/XHR 探针，用于 media-i
 
 ## 后端启动
 
+先进入仓库根目录：
+
 ```bash
-cd /Users/bryanxianyu/Desktop/echo360-online-subtitle-translator/backend
+cd /path/to/echo360-online-subtitle-translator
+```
+
+macOS / Linux:
+
+```bash
+cd backend
 python -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app:app --host 127.0.0.1 --port 8765 --reload
+```
+
+Windows (PowerShell):
+
+```powershell
+cd backend
+py -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app:app --host 127.0.0.1 --port 8765 --reload
 ```
@@ -52,12 +70,18 @@ uvicorn app:app --host 127.0.0.1 --port 8765 --reload
 curl http://127.0.0.1:8765/health
 ```
 
+Windows (PowerShell) 健康检查：
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:8765/health
+```
+
 ## 扩展安装
 
 1. 打开 `chrome://extensions`。
 2. 开启开发者模式。
 3. 点击 `加载已解压的扩展程序`。
-4. 选择 `/Users/bryanxianyu/Desktop/echo360-online-subtitle-translator/extension`。
+4. 选择当前仓库下的 `extension/` 目录。
 
 进入 Echo360 classroom 页面后，右下角会出现控制面板。正常使用点击 `加载翻译字幕`；如果需要清除当前缓存并重新翻译，点击 `重新翻译`。
 

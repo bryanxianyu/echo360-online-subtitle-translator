@@ -126,7 +126,7 @@
 
       const backendUrl = (cfg.backendUrl || "http://127.0.0.1:8765").replace(/\/+$/, "");
       const payload = ns.translationService.buildTranslatePayload(cfg, vttText, forceRefresh);
-      const result = await ns.translationService.translateWithBackend(backendUrl, payload, {
+      const result = await ns.translationService.translateWithConfig(cfg, backendUrl, payload, {
         isActive: () => activeRunId === runId,
         onProgress: (current, total) => {
           const tip = `翻译中 ${current}/${total}`;
@@ -144,7 +144,7 @@
         console.warn("translator warnings:", result.warnings);
         ns.ui.setStatusText(`告警: ${result.warnings[0]}`);
       } else {
-        ns.ui.setStatusText(result.cache_hit ? "后端缓存命中" : "翻译完成");
+        ns.ui.setStatusText(result.cache_hit ? "缓存命中" : "翻译完成");
       }
 
       const mounted = ns.renderer.renderTranslatedTrack(
