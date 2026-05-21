@@ -23,11 +23,15 @@ DEFAULT_TRANSLATOR_SCRIPT = Path(__file__).resolve().parent.parent / "translator
 TRANSLATOR_SCRIPT = Path(os.getenv("TRANSLATOR_SCRIPT", str(DEFAULT_TRANSLATOR_SCRIPT)))
 JOB_TTL_SECONDS = 60 * 60
 JOB_MAX_COUNT = 100
+KEYLESS_PROVIDERS = {"google-web"}
+WEB_PROVIDER_LIMITS = {
+    "google-web": {"concurrency": 36, "max_chars": 1200, "max_paragraphs": 10, "timeout": 10.0},
+}
 
 
 class TranslateRequest(BaseModel):
     vtt_text: str = Field(..., min_length=1)
-    api_key: str = Field(..., min_length=1)
+    api_key: str = ""
     provider: str = "deepseek"
     model: str = "deepseek-v4-flash"
     endpoint: str = ""
@@ -40,6 +44,11 @@ class TranslateRequest(BaseModel):
     bilingual: bool = False
     timeout: int | None = None
     reasoning_effort: str | None = None
+    deepseek_thinking_mode: str = "disabled"
+    deepl_formality: str = ""
+    fallback_mode: str = "immediate"
+    repair_concurrency: int = 1
+    slow_split_threshold: float = 0.0
 
 
 class TranslateAsyncRequest(TranslateRequest):
@@ -107,7 +116,16 @@ def get_supported_args() -> set[str]:
         return set()
     text = (proc.stdout or "") + "\n" + (proc.stderr or "")
     supported = set()
-    for flag in ("--request-timeout", "--openai-reasoning-effort"):
+    for flag in (
+        "--request-timeout",
+        "--openai-reasoning-effort",
+        "--no-thinking",
+        "--with-thinking",
+        "--deepl-formality",
+        "--fallback-mode",
+        "--repair-concurrency",
+        "--slow-split-threshold",
+    ):
         if flag in text:
             supported.add(flag)
     return supported
@@ -134,6 +152,12 @@ def redact_args(args: list[str]) -> list[str]:
     return redacted
 
 
+def web_provider_limit_key(provider_name: str) -> str | None:
+    if provider_name in KEYLESS_PROVIDERS:
+        return provider_name
+    return None
+
+
 def build_translator_args(
     input_path: Path,
     out_vtt: Path,
@@ -141,6 +165,17 @@ def build_translator_args(
     supported_args: set[str],
     warnings: list[str],
 ) -> list[str]:
+    provider_name = (req.provider or "").strip().lower()
+    concurrency = int(req.concurrency)
+    max_chars = int(req.max_chars)
+    max_paragraphs = int(req.max_paragraphs)
+    limit_key = web_provider_limit_key(provider_name)
+    if limit_key:
+        limits = WEB_PROVIDER_LIMITS[limit_key]
+        concurrency = max(1, min(concurrency, int(limits["concurrency"])))
+        max_chars = max(100, min(max_chars, int(limits["max_chars"])))
+        max_paragraphs = int(limits["max_paragraphs"])
+
     args = [
         get_translator_python(),
         str(TRANSLATOR_SCRIPT),
@@ -156,18 +191,21 @@ def build_translator_args(
         "--target",
         req.target,
         "--max-paragraphs",
-        str(int(req.max_paragraphs)),
+        str(max_paragraphs),
         "--max-chars",
-        str(int(req.max_chars)),
+        str(max_chars),
         "--concurrency",
-        str(int(req.concurrency)),
+        str(concurrency),
         "--rps",
         str(float(req.rps)),
         "--max-retries",
         str(int(req.retries)),
     ]
     if "--request-timeout" in supported_args:
-        args.extend(["--request-timeout", str(float(req.timeout) if req.timeout is not None else 10.0)])
+        timeout = float(req.timeout) if req.timeout is not None else 10.0
+        if limit_key:
+            timeout = min(timeout, float(WEB_PROVIDER_LIMITS[limit_key]["timeout"]))
+        args.extend(["--request-timeout", str(timeout)])
     elif req.timeout is not None:
         warnings.append("translator script does not support --request-timeout, skipped")
     if req.bilingual:
@@ -179,6 +217,23 @@ def build_translator_args(
             args.extend(["--openai-reasoning-effort", req.reasoning_effort])
         else:
             warnings.append("translator script does not support --openai-reasoning-effort yet, skipped")
+    if req.provider == "deepseek":
+        thinking_mode = (req.deepseek_thinking_mode or "disabled").strip().lower()
+        if thinking_mode == "disabled" and "--no-thinking" in supported_args:
+            args.append("--no-thinking")
+        elif thinking_mode in {"enabled", "with-thinking"} and "--with-thinking" in supported_args:
+            args.append("--with-thinking")
+    if req.provider == "deepl" and req.deepl_formality:
+        if "--deepl-formality" in supported_args:
+            args.extend(["--deepl-formality", req.deepl_formality])
+        else:
+            warnings.append("translator script does not support --deepl-formality yet, skipped")
+    if req.fallback_mode and "--fallback-mode" in supported_args:
+        args.extend(["--fallback-mode", req.fallback_mode])
+    if "--repair-concurrency" in supported_args:
+        args.extend(["--repair-concurrency", str(max(1, int(req.repair_concurrency)))])
+    if "--slow-split-threshold" in supported_args:
+        args.extend(["--slow-split-threshold", str(max(0.0, float(req.slow_split_threshold)))])
     return args
 
 
@@ -193,6 +248,11 @@ def build_cache_key(vtt_text: str, req: TranslateRequest) -> str:
         "max_chars": req.max_chars,
         "bilingual": req.bilingual,
         "reasoning_effort": req.reasoning_effort,
+        "deepseek_thinking_mode": req.deepseek_thinking_mode,
+        "deepl_formality": req.deepl_formality,
+        "fallback_mode": req.fallback_mode,
+        "repair_concurrency": req.repair_concurrency,
+        "slow_split_threshold": req.slow_split_threshold,
     }
     raw = json.dumps(digest_input, ensure_ascii=False, sort_keys=True).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -205,6 +265,17 @@ def run_translation(
     progress_callback=None,
 ) -> tuple[str, list[str], bool]:
     warnings: list[str] = []
+    provider_name = (req.provider or "").strip().lower()
+    limit_key = web_provider_limit_key(provider_name)
+    if provider_name not in KEYLESS_PROVIDERS and not (req.api_key or "").strip():
+        raise HTTPException(status_code=400, detail=f"api_key is required for provider '{req.provider}'")
+    if limit_key:
+        warnings.append(f"{limit_key} is experimental and uses an unofficial web endpoint; stability is not guaranteed")
+        limits = WEB_PROVIDER_LIMITS[limit_key]
+        warnings.append(
+            f"{limit_key} uses capped backend settings: concurrency<={limits['concurrency']}, "
+            f"max_chars<={limits['max_chars']}, max_paragraphs={limits['max_paragraphs']}"
+        )
     if req.reasoning_effort and req.provider == "openai":
         allowed = allowed_reasoning_for_model(req.model)
         if req.reasoning_effort not in allowed:

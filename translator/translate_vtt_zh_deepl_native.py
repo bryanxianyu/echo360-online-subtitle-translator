@@ -8,6 +8,7 @@ Supports providers:
 - openai (Responses API)
 - deepseek (OpenAI-compatible Responses API)
 - gemini (Gemini generateContent API)
+- google-web (experimental, unofficial web endpoint)
 """
 
 import argparse
@@ -18,6 +19,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Callable, List
+from urllib.parse import quote
 
 import requests
 
@@ -50,6 +52,14 @@ GEMINI_DEFAULT_MAX_CHARS = 1200
 GEMINI_DEFAULT_MAX_PARAGRAPHS = 6
 GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-lite"
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+WEB_TRANSLATOR_DEFAULT_CHUNK_SIZE = 1
+GOOGLE_WEB_DEFAULT_CONCURRENCY = 36
+GOOGLE_WEB_DEFAULT_MAX_CHARS = 1200
+GOOGLE_WEB_DEFAULT_MAX_PARAGRAPHS = 10
+WEB_TRANSLATOR_DEFAULT_MAX_RETRIES = 1
+KEYLESS_PROVIDERS = {"google-web"}
+SPLIT_FALLBACK_PROVIDERS = {"openai", "deepseek", "gemini", "google-web"}
 
 AI_LINE_SEPARATOR = "\n<<<VTT_TRANSLATOR_LINE_BREAK_8F3B>>>\n"
 YUE_TARGET_CODES = {"YUE", "CANTONESE"}
@@ -145,6 +155,16 @@ def build_text_batches(
 
 def provider_defaults(provider: str) -> dict[str, int | str]:
     provider_name = (provider or "deepl").strip().lower()
+    if provider_name == "google-web":
+        return {
+            "chunk": WEB_TRANSLATOR_DEFAULT_CHUNK_SIZE,
+            "concurrency": GOOGLE_WEB_DEFAULT_CONCURRENCY,
+            "max_chars": GOOGLE_WEB_DEFAULT_MAX_CHARS,
+            "max_paragraphs": GOOGLE_WEB_DEFAULT_MAX_PARAGRAPHS,
+            "max_retries": WEB_TRANSLATOR_DEFAULT_MAX_RETRIES,
+            "endpoint": "",
+            "model": "",
+        }
     if provider_name == "openai":
         return {
             "chunk": OPENAI_DEFAULT_CHUNK_SIZE,
@@ -239,6 +259,68 @@ def _resolve_deepl_target_lang(target_lang: str) -> str:
     if code in TRADITIONAL_CHINESE_TARGET_CODES:
         return "ZH-HANT"
     return target_lang
+
+
+def _resolve_web_target_lang(target_lang: str, provider: str) -> str:
+    code = (target_lang or "ZH").strip().upper()
+    google_map = {
+        "ZH": "zh-CN",
+        "ZH-HK": "zh-TW",
+        "YUE": "yue",
+        "JA": "ja",
+        "KO": "ko",
+        "EN": "en",
+        "FR": "fr",
+        "DE": "de",
+        "ES": "es",
+        "IT": "it",
+        "PT": "pt",
+        "RU": "ru",
+        "AR": "ar",
+        "HI": "hi",
+    }
+    return google_map.get(code, code.lower())
+
+
+def google_web_translate_batch(
+    texts: List[str],
+    target_lang: str,
+    max_retries: int = WEB_TRANSLATOR_DEFAULT_MAX_RETRIES,
+    base_delay: float = 1.0,
+    request_timeout: float = 30.0,
+) -> List[str]:
+    # Unofficial endpoint used only for local experimental testing. It can break or rate-limit.
+    target = _resolve_web_target_lang(target_lang, "google-web")
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json,text/plain,*/*",
+    })
+    out: list[str] = []
+    for text in texts:
+        url = (
+            "https://translate.googleapis.com/translate_a/single"
+            f"?client=gtx&sl=auto&tl={quote(target)}&dt=t&q={quote(text)}"
+        )
+        attempt = 0
+        while True:
+            try:
+                resp = session.get(url, timeout=request_timeout)
+                if resp.status_code != 200:
+                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+                data = resp.json()
+                translated = "".join(
+                    part[0] for part in (data[0] or [])
+                    if isinstance(part, list) and part and isinstance(part[0], str)
+                ).strip()
+                out.append(translated or text)
+                break
+            except Exception:
+                if attempt >= max_retries:
+                    raise
+                attempt += 1
+                time.sleep(base_delay * attempt)
+    return out
 
 
 def deepl_translate_batch(
@@ -656,9 +738,10 @@ def translate_lines_native(
     repair_concurrency: int = 1,
     no_thinking: bool = True,
     openai_reasoning_effort: str = "low",
+    deepl_formality: str = "",
 ) -> List[str]:
     provider_name = (provider or "deepl").strip().lower()
-    if provider_name not in {"deepl", "openai", "deepseek", "gemini"}:
+    if provider_name not in {"deepl", "openai", "deepseek", "gemini", "google-web"}:
         raise ValueError(f"Unsupported provider: {provider_name}")
 
     translatable_idx = [i for i, ln in enumerate(lines) if should_translate(ln)]
@@ -695,6 +778,7 @@ def translate_lines_native(
                 target_lang=target_lang,
                 max_retries=max_retries,
                 request_timeout=request_timeout,
+                formality=deepl_formality or None,
             )
         if provider_name == "openai":
             return openai_translate_batch(
@@ -719,6 +803,13 @@ def translate_lines_native(
                 strict_json_fallback=not fastpath_only_main,
                 request_timeout=request_timeout,
                 no_thinking=no_thinking,
+            )
+        if provider_name == "google-web":
+            return google_web_translate_batch(
+                batch_texts,
+                target_lang=target_lang,
+                max_retries=max_retries,
+                request_timeout=request_timeout,
             )
         return gemini_translate_batch(
             batch_texts,
@@ -739,6 +830,7 @@ def translate_lines_native(
                 api_key=api_key,
                 target_lang=target_lang,
                 max_retries=max_retries,
+                formality=deepl_formality or None,
             )
         if provider_name == "openai":
             return openai_translate_batch(
@@ -764,6 +856,13 @@ def translate_lines_native(
                 request_timeout=request_timeout,
                 no_thinking=no_thinking,
             )
+        if provider_name == "google-web":
+            return google_web_translate_batch(
+                batch_texts,
+                target_lang=target_lang,
+                max_retries=max_retries,
+                request_timeout=request_timeout,
+            )
         return gemini_translate_batch(
             batch_texts,
             api_key=api_key,
@@ -781,7 +880,7 @@ def translate_lines_native(
             translated = translate_batch_with_provider(batch_texts)
             elapsed = time.perf_counter() - t0
             if (
-                provider_name in {"openai", "deepseek", "gemini"}
+                provider_name in SPLIT_FALLBACK_PROVIDERS
                 and slow_split_threshold > 0
                 and len(batch_texts) > 1
                 and elapsed > slow_split_threshold
@@ -792,7 +891,8 @@ def translate_lines_native(
             return translated, False, None
         except Exception as e:
             # For AI providers, split-fallback improves strict-mode completion rate.
-            if provider_name in {"openai", "deepseek", "gemini"} and len(batch_texts) > 1:
+            can_split_fallback = provider_name in SPLIT_FALLBACK_PROVIDERS
+            if can_split_fallback and len(batch_texts) > 1:
                 mid = len(batch_texts) // 2
                 left, left_failed, left_err = translate_batch_recursive(batch_texts[:mid])
                 right, right_failed, right_err = translate_batch_recursive(batch_texts[mid:])
@@ -800,7 +900,7 @@ def translate_lines_native(
                 if left and right and len(left) + len(right) == len(batch_texts):
                     recovered_with_fallback = left_failed or right_failed
                     return left + right, recovered_with_fallback, combined_err
-            if provider_name in {"openai", "deepseek", "gemini"} and len(batch_texts) == 1:
+            if can_split_fallback and len(batch_texts) == 1:
                 # Keep progress by isolating hard failures to a single line.
                 return [batch_texts[0]], True, str(e)
             raise
@@ -1005,14 +1105,14 @@ def translate_lines_native(
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Translate VTT using DeepL/OpenAI/DeepSeek API.")
+    ap = argparse.ArgumentParser(description="Translate VTT using DeepL/OpenAI/DeepSeek/Gemini or experimental web providers.")
     ap.add_argument("input", help="Path to input .vtt")
     ap.add_argument("--out", required=True, help="Path to output .vtt")
-    ap.add_argument("--key", required=True, help="API key for selected provider")
+    ap.add_argument("--key", default="", help="API key for selected provider; optional for experimental web providers")
     ap.add_argument(
         "--provider",
         default="deepl",
-        choices=["deepl", "openai", "deepseek", "gemini"],
+        choices=["deepl", "openai", "deepseek", "gemini", "google-web"],
         help="Translation provider",
     )
     ap.add_argument(
@@ -1040,6 +1140,12 @@ def main():
     )
     ap.add_argument("--no-thinking", action="store_true", help="DeepSeek only: disable thinking mode")
     ap.add_argument("--with-thinking", action="store_true", help="DeepSeek only: enable thinking mode")
+    ap.add_argument(
+        "--deepl-formality",
+        default="",
+        choices=["", "more", "less", "prefer_more", "prefer_less"],
+        help="DeepL only: formality preference",
+    )
     ap.add_argument(
         "--slow-split-threshold",
         type=float,
@@ -1071,9 +1177,19 @@ def main():
     if args.provider == "deepl" and args.target.strip().upper() in YUE_TARGET_CODES:
         print("ERROR: DeepL does not support Traditional Cantonese (YUE). Use an AI provider.", file=sys.stderr)
         sys.exit(1)
+    if args.provider not in KEYLESS_PROVIDERS and not (args.key or "").strip():
+        print(f"ERROR: --key is required for provider={args.provider}", file=sys.stderr)
+        sys.exit(1)
+    if args.provider in KEYLESS_PROVIDERS:
+        print(
+            f"WARNING: provider={args.provider} uses an unofficial web endpoint for local stability testing only.",
+            file=sys.stderr,
+        )
 
     defaults = provider_defaults(args.provider)
     resolved_endpoint = args.endpoint
+    if args.provider in KEYLESS_PROVIDERS:
+        resolved_endpoint = ""
     if args.provider in {"openai", "deepseek", "gemini"} and resolved_endpoint in {
         "https://api-free.deepl.com/v2/translate",
         "https://api.deepl.com/v2/translate",
@@ -1126,6 +1242,7 @@ def main():
         repair_concurrency=max(1, int(args.repair_concurrency)),
         no_thinking=(False if args.with_thinking else True),
         openai_reasoning_effort=args.openai_reasoning_effort,
+        deepl_formality=args.deepl_formality,
     )
 
     print(f"Writing: {out_path}")

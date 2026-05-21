@@ -16,24 +16,37 @@
         --accent-ink: #ffffff;
       }
 
-      * {
-        box-sizing: border-box;
-      }
+      * { box-sizing: border-box; }
 
       body {
-        width: 320px;
+        width: 340px;
         margin: 0;
         padding: 16px;
-        background: var(--bg);
+        background: radial-gradient(circle at top left, #fff4dc 0, var(--bg) 55%, #eaf3f2 100%);
         color: var(--ink);
-        font-family: ui-serif, Georgia, "Times New Roman", serif;
+        font-family: ui-sans-serif, "Avenir Next", "Helvetica Neue", Arial, sans-serif;
       }
 
       h1 {
-        margin: 0 0 14px;
-        font-size: 17px;
+        margin: 0 0 6px;
+        font-size: 18px;
         line-height: 1.2;
-        font-weight: 700;
+        font-weight: 800;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .card {
+        margin-top: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 253, 248, 0.9);
       }
 
       label {
@@ -41,7 +54,7 @@
         margin-top: 12px;
         color: var(--muted);
         font-size: 12px;
-        font-weight: 700;
+        font-weight: 800;
       }
 
       select,
@@ -50,27 +63,43 @@
         margin-top: 6px;
         padding: 9px 10px;
         border: 1px solid var(--line);
-        border-radius: 6px;
+        border-radius: 8px;
         background: var(--field);
         color: var(--ink);
-        font: 14px/1.25 ui-sans-serif, "Avenir Next", "Helvetica Neue", sans-serif;
+        font: 14px/1.25 inherit;
+      }
+
+      input:disabled {
+        color: var(--muted);
+        background: #f0ebe3;
       }
 
       button {
         width: 100%;
-        margin-top: 16px;
+        margin-top: 12px;
         padding: 10px 12px;
         border: 0;
-        border-radius: 6px;
+        border-radius: 8px;
         background: var(--accent);
         color: var(--accent-ink);
         cursor: pointer;
-        font: 700 14px/1 ui-sans-serif, "Avenir Next", "Helvetica Neue", sans-serif;
+        font-weight: 800;
+      }
+
+      button.secondary {
+        background: #2f3637;
       }
 
       button:disabled {
         cursor: default;
         opacity: 0.7;
+      }
+
+      .hint {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
       }
 
       #status {
@@ -84,16 +113,23 @@
   </head>
   <body>
     <h1>Echo360 Translator</h1>
+    <p>默认 Google Web 可直接试用；如果重视翻译质量，建议在完整设置中配置 AI/API 模型。</p>
 
-    <label for="modelPreset">模型</label>
-    <select id="modelPreset"></select>
+    <div class="card">
+      <label for="modelPreset">翻译服务</label>
+      <select id="modelPreset"></select>
+      <div id="providerHint" class="hint"></div>
 
-    <label for="apiKey">API Key</label>
-    <input id="apiKey" type="password" autocomplete="off" placeholder="sk-..." />
+      <label for="apiKey">API Key</label>
+      <input id="apiKey" type="password" autocomplete="off" placeholder="Google Web 不需要 API Key" />
+      <div id="apiKeyHint" class="hint"></div>
 
-    <button id="saveBtn">保存</button>
-    <div id="status"></div>
+      <button id="saveBtn">保存</button>
+      <button id="optionsBtn" class="secondary" type="button">打开完整设置</button>
+      <div id="status" role="status" aria-live="polite"></div>
+    </div>
 
+    <script src="build_config.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

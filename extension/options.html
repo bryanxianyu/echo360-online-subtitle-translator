@@ -5,126 +5,302 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Echo360 Translator 设置</title>
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; max-width: 720px; }
-      h1 { font-size: 20px; margin-bottom: 16px; }
-      label { display: block; margin-top: 12px; font-weight: 600; }
-      input, select { width: 100%; box-sizing: border-box; padding: 8px 10px; margin-top: 6px; }
-      input[type="checkbox"] { width: auto; margin-right: 8px; }
-      button { margin-top: 16px; padding: 8px 14px; }
-      #status { margin-top: 12px; color: #0a7a2a; min-height: 20px; }
-      .hint { color: #666; font-size: 13px; margin-top: 6px; }
+      :root {
+        color-scheme: light;
+        --bg: #f7f3ec;
+        --card: #fffdf8;
+        --ink: #171411;
+        --muted: #6e6258;
+        --line: #d8cfc3;
+        --accent: #0d5c63;
+        --accent-soft: #e4f0ef;
+        --danger: #9d2b2b;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        padding: 28px;
+        max-width: 980px;
+        background: radial-gradient(circle at top left, #fff7e6 0, var(--bg) 42%, #eef5f4 100%);
+        color: var(--ink);
+        font-family: ui-sans-serif, "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+      }
+
+      header {
+        margin-bottom: 20px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+        line-height: 1.15;
+      }
+
+      h2 {
+        margin: 0 0 14px;
+        font-size: 16px;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+        gap: 18px;
+      }
+
+      .card,
+      details {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: rgba(255, 253, 248, 0.92);
+        box-shadow: 0 14px 34px rgba(49, 39, 27, 0.08);
+      }
+
+      .card {
+        padding: 18px;
+      }
+
+      details {
+        margin-top: 18px;
+        padding: 0;
+      }
+
+      summary {
+        cursor: pointer;
+        padding: 16px 18px;
+        font-weight: 800;
+      }
+
+      .details-body {
+        padding: 0 18px 18px;
+      }
+
+      label {
+        display: block;
+        margin-top: 14px;
+        font-weight: 800;
+      }
+
+      input,
+      select {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 12px;
+        margin-top: 6px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--card);
+        color: var(--ink);
+        font: 15px/1.3 inherit;
+      }
+
+      input:disabled {
+        color: var(--muted);
+        background: #f0ebe3;
+      }
+
+      input[type="checkbox"] {
+        width: auto;
+        margin: 0 8px 0 0;
+      }
+
+      button {
+        margin-top: 18px;
+        padding: 11px 18px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+        font-weight: 800;
+      }
+
+      .hint {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+        margin-top: 6px;
+      }
+
+      .notice {
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: var(--accent-soft);
+        color: #174c50;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .warning {
+        margin-top: 12px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: #fff4df;
+        color: #65420c;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .privacy-list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      #status {
+        margin-top: 12px;
+        color: #0a7a2a;
+        min-height: 20px;
+        font-weight: 700;
+      }
+
+      #status.error {
+        color: var(--danger);
+      }
+
+      @media (max-width: 760px) {
+        body { padding: 18px; }
+        .grid { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
-    <h1>Echo360 Online Subtitle Translator 设置</h1>
-    <label>
-      <input id="useLocalBackend" type="checkbox" />
-      使用本地后端
-    </label>
-    <div class="hint">关闭时扩展会直接调用所选 Provider API，适合 Chrome Store 测试版。</div>
+    <header>
+      <h1>Echo360 Subtitle Translator</h1>
+      <p>为 Echo360 录播课加载翻译字幕。默认配置适合快速试用；如果重视翻译质量，建议在基础设置中切换到 AI/API 模型。</p>
+    </header>
 
-    <label for="backendUrl">Backend URL</label>
-    <input id="backendUrl" placeholder="http://127.0.0.1:8765" />
+    <div class="grid">
+      <main>
+        <section class="card">
+          <h2>基础设置</h2>
 
-    <label for="apiKey">API Key</label>
-    <input id="apiKey" type="password" placeholder="sk-..." />
+          <label for="provider">翻译服务</label>
+          <select id="provider">
+            <option value="google-web">Google Web</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="gemini">Gemini</option>
+            <option value="openai">OpenAI</option>
+            <option value="deepl">DeepL</option>
+          </select>
+          <div id="providerHint" class="hint"></div>
 
-    <label for="provider">Provider</label>
-    <select id="provider">
-      <option value="openai">openai</option>
-      <option value="deepseek">deepseek</option>
-      <option value="gemini">gemini</option>
-      <option value="deepl">deepl</option>
-    </select>
+          <label for="target">目标语言</label>
+          <select id="target">
+            <option value="ZH">简体中文</option>
+            <option value="ZH-HK">繁体中文（香港）</option>
+            <option value="YUE">粤语（繁体）</option>
+            <option value="EN">English</option>
+            <option value="JA">日本語</option>
+            <option value="KO">한국어</option>
+            <option value="FR">Français</option>
+            <option value="DE">Deutsch</option>
+            <option value="ES">Español</option>
+            <option value="IT">Italiano</option>
+            <option value="PT">Português</option>
+            <option value="RU">Русский</option>
+            <option value="AR">العربية</option>
+            <option value="HI">हिन्दी</option>
+          </select>
 
-    <label for="model">Model</label>
-    <input id="model" placeholder="deepseek-v4-flash" />
+          <label for="apiKey">API Key</label>
+          <input id="apiKey" type="password" autocomplete="off" placeholder="Google Web 不需要 API Key" />
+          <div id="apiKeyHint" class="hint"></div>
 
-    <label for="endpoint">Endpoint (optional)</label>
-    <input id="endpoint" placeholder="https://api.deepseek.com" />
+          <label for="model">Model</label>
+          <input id="model" placeholder="deepseek-v4-flash" />
 
-    <label for="target">Target Language</label>
-    <select id="target">
-      <option value="ZH">ZH (Chinese)</option>
-      <option value="ZH-HK">ZH-HK (Traditional Chinese, Hong Kong)</option>
-      <option value="YUE">YUE (Cantonese, Traditional)</option>
-      <option value="EN">EN (English)</option>
-      <option value="JA">JA (Japanese)</option>
-      <option value="KO">KO (Korean)</option>
-      <option value="FR">FR (French)</option>
-      <option value="DE">DE (German)</option>
-      <option value="ES">ES (Spanish)</option>
-      <option value="IT">IT (Italian)</option>
-      <option value="PT">PT (Portuguese)</option>
-      <option value="RU">RU (Russian)</option>
-      <option value="AR">AR (Arabic)</option>
-      <option value="HI">HI (Hindi)</option>
-    </select>
+          <label for="endpoint">Endpoint（可选）</label>
+          <input id="endpoint" placeholder="通常保持为空" />
 
-    <label for="maxParagraphs">Max Paragraphs</label>
-    <input id="maxParagraphs" type="number" min="1" step="1" />
+          <!-- LOCAL_BACKEND_START -->
+          <div id="localBackendSection">
+            <label>
+              <input id="useLocalBackend" type="checkbox" />
+              使用本地后端
+            </label>
+            <div id="backendHint" class="hint">关闭时扩展会直接调用所选服务。仅当你需要本地脚本、后端缓存或调试时开启。</div>
 
-    <label for="maxChars">Max Chars</label>
-    <input id="maxChars" type="number" min="100" step="50" />
+            <label for="backendUrl">Backend URL</label>
+            <input id="backendUrl" placeholder="http://127.0.0.1:8765" />
+          </div>
+          <!-- LOCAL_BACKEND_END -->
 
-    <label for="concurrency">Concurrency</label>
-    <input id="concurrency" type="number" min="1" step="1" />
+          <button id="saveBtn">保存设置</button>
+          <div id="status" role="status" aria-live="polite"></div>
+        </section>
 
-    <label for="rps">RPS</label>
-    <input id="rps" type="number" min="0" step="0.1" />
+        <details>
+          <summary>高级翻译参数</summary>
+          <div class="details-body">
+            <div id="advancedEmptyHint" class="hint">当前翻译服务没有额外高级参数。</div>
 
-    <label for="retries">Retries</label>
-    <input id="retries" type="number" min="0" step="1" />
+            <div data-provider-advanced="openai" hidden>
+              <label for="reasoningEffort">Reasoning Effort</label>
+              <select id="reasoningEffort">
+                <option value="">(none)</option>
+                <option value="minimal">minimal</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+                <option value="none">none</option>
+              </select>
+              <div class="hint">仅 OpenAI 支持。不同模型允许的 Reasoning Effort 不完全相同。</div>
+            </div>
 
-    <label for="timeout">Timeout (seconds)</label>
-    <input id="timeout" type="number" min="1" step="1" />
-    <div class="hint">仅当后端翻译脚本支持 `--request-timeout` 时生效。</div>
+            <div data-provider-advanced="deepseek" hidden>
+              <label for="deepseekThinkingMode">DeepSeek Thinking</label>
+              <select id="deepseekThinkingMode">
+                <option value="disabled">disabled (default)</option>
+                <option value="omit">API default (omit field)</option>
+              </select>
+              <div class="hint">为了更丝滑的翻译体验，DeepSeek Thinking 默认为关闭。</div>
+            </div>
 
-    <label for="reasoningEffort">Reasoning Effort</label>
-    <select id="reasoningEffort">
-      <option value="">(none)</option>
-      <option value="minimal">minimal</option>
-      <option value="low">low</option>
-      <option value="medium">medium</option>
-      <option value="high">high</option>
-      <option value="xhigh">xhigh</option>
-      <option value="none">none</option>
-    </select>
-    <div class="hint">OpenAI Provider 生效；本地后端需翻译脚本支持 `--openai-reasoning-effort`。</div>
+            <div data-provider-advanced="deepl" hidden>
+              <label for="deeplFormality">DeepL Formality</label>
+              <select id="deeplFormality">
+                <option value="">(default)</option>
+                <option value="more">more</option>
+                <option value="less">less</option>
+                <option value="prefer_more">prefer_more</option>
+                <option value="prefer_less">prefer_less</option>
+              </select>
+            </div>
+          </div>
+        </details>
+      </main>
 
-    <label for="fallbackMode">Fallback Mode</label>
-    <select id="fallbackMode">
-      <option value="immediate">immediate</option>
-      <option value="deferred">deferred</option>
-      <option value="deferred-fastpath">deferred-fastpath</option>
-    </select>
-    <div class="hint">直连 Provider 时生效。deferred 模式会先跑主流程，再集中修复失败 batch。</div>
+      <aside>
+        <section class="card">
+          <h2>首次使用</h2>
+          <div class="notice">默认选择 <strong>Google Web</strong>，因为它免费且无需 API Key，适合首次安装后立即试用。打开 Echo360 录播页后，点击右下角 <strong>加载翻译字幕</strong>。</div>
+          <div class="warning">如果你更重视翻译质量，建议改用 DeepSeek、OpenAI、Gemini 或 DeepL，并填写自己的 API Key。字幕文本会发送到你选择的第三方服务进行翻译。</div>
+        </section>
 
-    <label for="repairConcurrency">Repair Concurrency</label>
-    <input id="repairConcurrency" type="number" min="1" step="1" />
+        <section class="card" style="margin-top:18px;">
+          <h2>数据与隐私</h2>
+          <p>扩展只在 Echo360/Canvas 课程页面运行，用于读取字幕、生成翻译字幕并保存本地配置。</p>
+          <ul class="privacy-list">
+            <li>API Key 保存在 Chrome 本地 storage，不上传到本项目服务器。</li>
+            <li>字幕内容会发送到你选择的翻译服务。</li>
+            <li>本地缓存只保留最近的翻译字幕，用于刷新页面后快速加载。</li>
+          </ul>
+        </section>
+      </aside>
+    </div>
 
-    <label for="slowSplitThreshold">Slow Split Threshold (seconds)</label>
-    <input id="slowSplitThreshold" type="number" min="0" step="0.1" />
-    <div class="hint">直连 AI Provider 时生效。大于 0 时，慢 batch 会被拆分重试。</div>
-
-    <label for="deepseekThinkingMode">DeepSeek Thinking</label>
-    <select id="deepseekThinkingMode">
-      <option value="omit">API default (omit field)</option>
-      <option value="disabled">disabled</option>
-    </select>
-
-    <label for="deeplFormality">DeepL Formality</label>
-    <select id="deeplFormality">
-      <option value="">(default)</option>
-      <option value="more">more</option>
-      <option value="less">less</option>
-      <option value="prefer_more">prefer_more</option>
-      <option value="prefer_less">prefer_less</option>
-    </select>
-
-    <button id="saveBtn">保存配置</button>
-    <div id="status"></div>
+    <script src="build_config.js"></script>
     <script src="browser_api.js"></script>
     <script src="options.js"></script>
   </body>
-  </html>
+</html>

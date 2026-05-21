@@ -1,6 +1,7 @@
-importScripts("browser_api.js", "direct_translator.js");
+importScripts("build_config.js", "browser_api.js", "direct_translator.js");
 
 const extensionApi = globalThis.Echo360ExtensionApi;
+const buildConfig = globalThis.Echo360BuildConfig || {};
 const DIRECT_CACHE_KEY = "echo360DirectTranslateCache";
 const DIRECT_CACHE_MAX_ENTRIES = 10;
 const DIRECT_CACHE_MAX_CHARS = 5_000_000;
@@ -72,6 +73,7 @@ function pruneDirectCache(cache) {
 
 async function setDirectCacheEntry(cacheKey, translatedVtt) {
   if (!translatedVtt) return;
+  if (translatedVtt.length > DIRECT_CACHE_MAX_CHARS) return;
   const cache = await getDirectCache();
   cache[cacheKey] = {
     translated_vtt: translatedVtt,
@@ -82,9 +84,13 @@ async function setDirectCacheEntry(cacheKey, translatedVtt) {
   try {
     await setDirectCache(cache);
   } catch (_) {
-    await extensionApi.storage.local.set({
-      [DIRECT_CACHE_KEY]: pruneDirectCache({ [cacheKey]: cache[cacheKey] }),
-    });
+    try {
+      await extensionApi.storage.local.set({
+        [DIRECT_CACHE_KEY]: pruneDirectCache({ [cacheKey]: cache[cacheKey] }),
+      });
+    } catch (err) {
+      console.warn("[echo360-translator] direct cache skipped:", err?.message || String(err));
+    }
   }
 }
 
@@ -119,7 +125,11 @@ function createDirectJob(payload) {
       job.status = "completed";
       job.result = { ...result, cache_hit: false };
       job.updatedAt = Date.now();
-      await setDirectCacheEntry(cacheKey, result.translated_vtt);
+      try {
+        await setDirectCacheEntry(cacheKey, result.translated_vtt);
+      } catch (err) {
+        console.warn("[echo360-translator] direct cache write failed:", err?.message || String(err));
+      }
     } catch (err) {
       job.status = "failed";
       job.error = err?.message || String(err);
@@ -145,6 +155,10 @@ function pruneDirectJobs() {
 }
 
 async function proxyBackendRequest(message) {
+  if (buildConfig.enableLocalBackend === false) {
+    return { ok: false, error: "local backend is disabled in this build" };
+  }
+
   const { backendUrl } = message;
   if (!backendUrl) {
     return { ok: false, error: "missing backendUrl" };

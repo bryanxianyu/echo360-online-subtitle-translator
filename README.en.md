@@ -7,8 +7,8 @@ Chrome extension + local FastAPI backend for loading translated subtitles on Ech
 ## What It Does
 
 1. Finds the Echo360 VTT subtitle source for the current lecture.
-2. Sends the VTT text to the local backend.
-3. The backend calls the existing VTT translator script:
+2. Translates through the extension frontend or the optional local backend, depending on configuration.
+3. If the local backend is enabled, the backend calls the bundled VTT translator script:
    `translator/translate_vtt_zh_deepl_native.py`
 4. The extension mounts the translated VTT back onto the active Echo360 video.
 
@@ -85,22 +85,61 @@ Invoke-WebRequest http://127.0.0.1:8765/health
 
 On an Echo360 classroom page, the control panel appears at the bottom right. Use `加载翻译字幕` for normal loading and `重新翻译` to clear the current cache and rerun translation.
 
+## Release Builds
+
+The source tree keeps the local backend switch available for development. Use the store build for Chrome Web Store submission:
+
+```bash
+npm run build:store
+```
+
+Build outputs:
+- `dist/extension-store/`
+- `dist/echo360-online-subtitle-translator-store.zip`
+
+The store build disables and hides the local backend entry, and removes `localhost` / `127.0.0.1` permissions from `manifest.json`.
+
+For local development:
+
+```bash
+npm run build:dev
+```
+
+The dev build keeps the local backend entry and localhost permissions.
+
 ## Defaults
 
-- provider: `deepseek`
-- model: `deepseek-v4-flash`
+- provider: `google-web`
+- model: empty by default
 - target: `ZH`
 - max_paragraphs: `6`
 - max_chars: `1200`
-- concurrency: `96`
+- concurrency: `36`
 - rps: `0`
 - retries: `1`
 - timeout: `10`
 - reasoning_effort: empty by default
+- deepseek_thinking_mode: `disabled`
+
+Advanced translation settings only show provider-specific options:
+- OpenAI: `Reasoning Effort`
+- DeepSeek: `DeepSeek Thinking` (disabled by default to reduce latency)
+- DeepL: `DeepL Formality`
 
 Language notes:
 - Extension target options include `ZH-HK` and `YUE`
 - `deepl` does not support `YUE`; use an AI provider instead (`deepseek`/`openai`/`gemini`)
+
+Google Web provider:
+- `google-web` uses an unofficial web endpoint and does not require an API key, so it is useful for quick first-run testing
+- The store build calls it directly from the extension frontend; the dev build can optionally proxy it through the local backend
+- The backend/script path caps it at `concurrency=36, max_chars=1200, max_paragraphs=10`
+- This endpoint is unofficial, so stability, availability, and translation quality are not guaranteed
+- For better subtitle translation quality, use an AI/API provider such as `deepseek`, `openai`, `gemini`, or `deepl` with your own API key
+
+## Privacy
+
+See [PRIVACY.md](PRIVACY.md). The extension sends subtitle text to the translation provider selected by the user; API keys and subtitle cache are stored in Chrome local storage.
 
 ## Backend Translator Invocation
 

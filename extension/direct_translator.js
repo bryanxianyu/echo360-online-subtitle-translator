@@ -6,6 +6,10 @@ globalThis.Echo360DirectTranslator = (() => {
     deepseek: { model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions" },
     gemini: { model: "gemini-2.5-flash-lite", endpoint: "https://generativelanguage.googleapis.com/v1beta" },
     deepl: { model: "", endpoint: "https://api-free.deepl.com/v2/translate" },
+    "google-web": { model: "", endpoint: "https://translate.googleapis.com/translate_a/single" },
+  };
+  const PROVIDER_CONCURRENCY_CAPS = {
+    "google-web": 36,
   };
   const OPENAI_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 
@@ -46,6 +50,10 @@ globalThis.Echo360DirectTranslator = (() => {
 
   function providerDefault(provider, key) {
     return PROVIDER_DEFAULTS[normalizeProvider(provider)][key];
+  }
+
+  function providerConcurrencyCap(provider) {
+    return PROVIDER_CONCURRENCY_CAPS[normalizeProvider(provider)] || 96;
   }
 
   function resolveModel(cfg) {
@@ -182,6 +190,31 @@ globalThis.Echo360DirectTranslator = (() => {
     return `${ep}/models/${model}:generateContent`;
   }
 
+  function normalizeGoogleWebEndpoint(endpoint) {
+    return String(endpoint || providerDefault("google-web", "endpoint")).trim().replace(/\?+$/, "");
+  }
+
+  function resolveWebTargetLang(target) {
+    const code = String(target || "ZH").trim().toUpperCase();
+    const map = {
+      ZH: "zh-CN",
+      "ZH-HK": "zh-TW",
+      YUE: "yue",
+      EN: "en",
+      JA: "ja",
+      KO: "ko",
+      FR: "fr",
+      DE: "de",
+      ES: "es",
+      IT: "it",
+      PT: "pt",
+      RU: "ru",
+      AR: "ar",
+      HI: "hi",
+    };
+    return map[code] || code.toLowerCase();
+  }
+
   function normalizeFallbackMode(mode) {
     const value = String(mode || "immediate").trim().toLowerCase();
     return ["immediate", "deferred", "deferred-fastpath"].includes(value) ? value : "immediate";
@@ -253,6 +286,13 @@ globalThis.Echo360DirectTranslator = (() => {
     const text = parts.map((part) => part?.text || "").join("").trim();
     if (text) return text;
     throw new Error("Gemini response missing candidates[0].content.parts text");
+  }
+
+  function extractGoogleWebText(data) {
+    const chunks = Array.isArray(data?.[0]) ? data[0] : [];
+    const text = chunks.map((item) => Array.isArray(item) ? item[0] || "" : "").join("").trim();
+    if (text) return text;
+    throw new Error("Google web response missing translated text");
   }
 
   async function callOpenAi(texts, cfg, jsonMode = false) {
@@ -341,9 +381,25 @@ globalThis.Echo360DirectTranslator = (() => {
     return (data.translations || []).map((item) => item.text || "");
   }
 
+  async function callGoogleWeb(texts, cfg) {
+    const endpoint = normalizeGoogleWebEndpoint(cfg.endpoint);
+    const target = resolveWebTargetLang(cfg.target);
+    const out = [];
+    for (const text of texts) {
+      const url = `${endpoint}?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`;
+      const data = await fetchJson(url, {
+        method: "GET",
+        headers: { "Accept": "application/json,text/plain,*/*" },
+      }, cfg.timeout, cfg.waitForRequest);
+      out.push(extractGoogleWebText(data));
+    }
+    return out;
+  }
+
   async function translateBatch(texts, cfg, options = {}) {
     const provider = normalizeProvider(cfg.provider);
     if (provider === "deepl") return callDeepL(texts, cfg);
+    if (provider === "google-web") return callGoogleWeb(texts, cfg);
     const call = provider === "openai" ? callOpenAi : provider === "gemini" ? callGemini : callDeepSeek;
     const raw = await call(texts, cfg, false);
     try {
@@ -356,7 +412,7 @@ globalThis.Echo360DirectTranslator = (() => {
   }
 
   function supportsRecursiveFallback(provider) {
-    return ["openai", "deepseek", "gemini"].includes(normalizeProvider(provider));
+    return ["openai", "deepseek", "gemini", "google-web"].includes(normalizeProvider(provider));
   }
 
   function isNonRecoverableError(message) {
@@ -442,7 +498,7 @@ globalThis.Echo360DirectTranslator = (() => {
     let completed = 0;
     let nextBatch = 0;
     const fallbackMode = normalizeFallbackMode(cfg.fallback_mode || cfg.fallbackMode);
-    const workers = Math.max(1, Math.min(Number(cfg.concurrency) || 3, 96, batches.length));
+    const workers = Math.max(1, Math.min(Number(cfg.concurrency) || 3, providerConcurrencyCap(cfg.provider), batches.length));
     const retries = Math.max(0, Number(cfg.retries) || 0);
     const repairConcurrency = Math.max(1, Math.min(Number(cfg.repair_concurrency ?? cfg.repairConcurrency) || 1, 96));
 

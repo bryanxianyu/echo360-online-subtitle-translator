@@ -1,11 +1,24 @@
 {
   "manifest_version": 3,
   "name": "Echo360 Online Subtitle Translator",
-  "version": "0.1.0",
-  "description": "Fetch Echo360 VTT, translate it, and mount translated subtitles.",
+  "version": "1.0.0",
+  "description": "Translate Echo360 lecture subtitles and display them on recorded videos.",
   "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_title": "Echo360 Subtitle Translator",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
@@ -19,6 +32,7 @@
     "https://api.deepseek.com/*",
     "https://api.openai.com/*",
     "https://generativelanguage.googleapis.com/*",
+    "https://translate.googleapis.com/*",
     "https://api-free.deepl.com/*",
     "https://api.deepl.com/*",
     "*://canvas.sydney.edu.au/*",
@@ -65,6 +79,7 @@
       ],
       "all_frames": true,
       "js": [
+        "build_config.js",
         "browser_api.js",
         "constants.js",
         "vtt.js",

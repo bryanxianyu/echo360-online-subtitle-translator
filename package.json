@@ -1,0 +1,7 @@
+{
+  "scripts": {
+    "build": "node scripts/build-extension.mjs all",
+    "build:store": "node scripts/build-extension.mjs store",
+    "build:dev": "node scripts/build-extension.mjs dev"
+  }
+}

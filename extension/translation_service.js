@@ -58,7 +58,7 @@
       target: cfg.target,
       max_paragraphs: Number(cfg.maxParagraphs) || 6,
       max_chars: Number(cfg.maxChars) || 1200,
-      concurrency: Number(cfg.concurrency) || 96,
+      concurrency: Number(cfg.concurrency) || 36,
       rps: Number(cfg.rps) || 0,
       retries: Number(cfg.retries) || 1,
       bilingual: false,
@@ -67,7 +67,7 @@
       fallback_mode: cfg.fallbackMode || "immediate",
       repair_concurrency: Number(cfg.repairConcurrency) || 1,
       slow_split_threshold: Number(cfg.slowSplitThreshold) || 0,
-      deepseek_thinking_mode: cfg.deepseekThinkingMode || "omit",
+      deepseek_thinking_mode: cfg.deepseekThinkingMode || "disabled",
       deepl_formality: cfg.deeplFormality || "",
       force_refresh: !!forceRefresh,
     };
@@ -97,7 +97,7 @@
   }
 
   async function translateWithConfig(cfg, backendUrl, payload, options = {}) {
-    if (cfg.useLocalBackend) {
+    if (cfg.useLocalBackend && ns.buildConfig?.enableLocalBackend !== false) {
       return await translateWithBackend(backendUrl, payload, options);
     }
     return await translateInExtension(payload, options);

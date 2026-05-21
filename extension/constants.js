@@ -1,5 +1,11 @@
 (() => {
   const ns = window.Echo360Translator = window.Echo360Translator || {};
+  const rawBuildConfig = window.Echo360BuildConfig || {};
+
+  ns.buildConfig = {
+    buildTarget: rawBuildConfig.buildTarget || "dev",
+    enableLocalBackend: rawBuildConfig.enableLocalBackend !== false,
+  };
 
   ns.constants = {
     STORAGE_KEY: "echo360TranslatorConfig",

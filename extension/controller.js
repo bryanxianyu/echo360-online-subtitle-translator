@@ -69,7 +69,7 @@
       const { vttText, sourceId, sourceMeta } = await ns.translationService.resolveSourceVtt(video);
       let cfg = await ns.storage.getConfig();
       cfg = await ns.storage.askApiKeyIfNeeded(cfg);
-      if (!cfg) throw new Error("未提供 API Key");
+      if (!cfg) throw new Error("当前 Provider 需要 API Key。请点击扩展图标填写，或切换到 Google Web。");
 
       const prefs = await ns.storage.getPrefs();
       ns.renderer.applySubtitleSize(prefs.size);
@@ -176,7 +176,6 @@
       const msg = ns.backendClient.friendlyErrorMessage(err?.message || String(err));
       ns.ui.setStatusText(`失败: ${msg}`);
       ns.ui.updateActionButtons("加载翻译字幕");
-      alert(`字幕翻译失败：${msg}`);
     } finally {
       if (activeRunId === runId) {
         isTranslating = false;
@@ -233,7 +232,7 @@
     const firstRunKey = "echo360TranslatorFirstRunShown";
     const firstRun = await extensionApi.storage.local.get(firstRunKey);
     if (!firstRun[firstRunKey]) {
-      ns.ui.setStatusText("首次使用：1) 填 API Key 2) 选语言 3) 点加载翻译字幕");
+      ns.ui.setStatusText("首次使用：默认 Google Web 可免费试用；若重视质量，请在扩展设置中配置 AI/API 模型。");
       await extensionApi.storage.local.set({ [firstRunKey]: true });
     }
   }

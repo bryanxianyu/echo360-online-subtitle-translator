@@ -17,6 +17,8 @@
   function friendlyErrorMessage(raw) {
     const msg = String(raw || "");
     if (msg.includes("HTTP 401") || msg.includes("HTTP 403")) return "API Key 无效或无权限。";
+    if (msg.includes("Failed to fetch")) return "网络请求失败。请检查网络、Provider 权限，或尝试切换 Provider。";
+    if (msg.includes("ModuleNotFoundError")) return "本地后端依赖缺失。请在 backend 环境执行 pip install -r requirements.txt。";
     if (msg.includes("timeout")) return "请求超时，请降低并发或增大超时。";
     if (msg.includes("provider")) return "Provider/Model 配置有误。";
     if (msg.includes("job not found")) return "后台任务不存在，请重试。";

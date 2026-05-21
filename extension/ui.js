@@ -39,18 +39,24 @@
     const translateBtn = document.createElement("button");
     translateBtn.id = "echo360-translator-btn";
     translateBtn.textContent = "加载翻译字幕";
+    translateBtn.title = "加载或复用当前录播的翻译字幕";
+    translateBtn.setAttribute("aria-label", "加载翻译字幕");
     styleButton(translateBtn, "#111");
     translateBtn.addEventListener("click", () => handlers.onTranslate?.());
 
     const forceBtn = document.createElement("button");
     forceBtn.id = "echo360-translator-force-btn";
     forceBtn.textContent = "重新翻译";
+    forceBtn.title = "清除当前字幕缓存并重新翻译";
+    forceBtn.setAttribute("aria-label", "重新翻译字幕");
     styleButton(forceBtn, "#333");
     forceBtn.addEventListener("click", () => handlers.onForceTranslate?.());
 
     const settingsBtn = document.createElement("button");
     settingsBtn.id = "echo360-translator-settings-btn";
     settingsBtn.textContent = "字幕设置";
+    settingsBtn.title = "打开字幕显示设置";
+    settingsBtn.setAttribute("aria-label", "打开字幕设置");
     styleButton(settingsBtn, "#444");
     settingsBtn.addEventListener("click", toggleSettingsPopover);
 
@@ -66,6 +72,8 @@
     if (document.getElementById("echo360-translator-popover")) return;
     const pop = document.createElement("div");
     pop.id = "echo360-translator-popover";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", "翻译字幕设置");
     pop.style.position = "fixed";
     pop.style.right = "16px";
     pop.style.bottom = "64px";
@@ -103,7 +111,7 @@
           ${TARGET_OPTIONS.map((t) => `<option value="${t}">${t}</option>`).join("")}
         </select>
       </label>
-      <div id="echo360-status-text" style="font-size:12px;opacity:.9;margin-top:8px;min-height:18px;"></div>
+      <div id="echo360-status-text" role="status" aria-live="polite" style="font-size:12px;opacity:.9;margin-top:8px;min-height:18px;"></div>
     `;
     document.body.appendChild(pop);
 

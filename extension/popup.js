@@ -1,16 +1,18 @@
 const STORAGE_KEY = "echo360TranslatorConfig";
+const buildConfig = globalThis.Echo360BuildConfig || {};
+const enableLocalBackend = buildConfig.enableLocalBackend !== false;
 
 const defaultConfig = {
   apiKey: "",
   useLocalBackend: false,
   backendUrl: "http://127.0.0.1:8765",
-  provider: "deepseek",
-  model: "deepseek-v4-flash",
+  provider: "google-web",
+  model: "",
   endpoint: "",
   target: "ZH",
   maxParagraphs: 6,
   maxChars: 1200,
-  concurrency: 96,
+  concurrency: 36,
   rps: 0,
   retries: 1,
   timeout: 10,
@@ -18,16 +20,25 @@ const defaultConfig = {
   fallbackMode: "immediate",
   repairConcurrency: 1,
   slowSplitThreshold: 0,
-  deepseekThinkingMode: "omit",
+  deepseekThinkingMode: "disabled",
   deeplFormality: "",
 };
 
 const modelPresets = [
+  { provider: "google-web", model: "", endpoint: "", label: "Google Web" },
   { provider: "deepseek", model: "deepseek-v4-flash", endpoint: "", label: "DeepSeek - deepseek-v4-flash" },
   { provider: "gemini", model: "gemini-2.5-flash-lite", endpoint: "", label: "Gemini - gemini-2.5-flash-lite" },
   { provider: "openai", model: "gpt-5-nano", endpoint: "", label: "OpenAI - gpt-5-nano" },
   { provider: "deepl", model: "", endpoint: "", label: "DeepL" },
 ];
+const keylessProviders = new Set(["google-web"]);
+const providerHints = {
+  "google-web": "免费、无需 API Key，适合先试用；质量通常不如 AI/API 模型。",
+  deepseek: "需要 DeepSeek API Key，适合更高质量字幕翻译；Thinking 默认关闭。",
+  gemini: "需要 Gemini API Key，适合更高质量字幕翻译。",
+  openai: "需要 OpenAI API Key，适合更高质量字幕翻译。",
+  deepl: "需要 DeepL API Key，适合常规机器翻译。"
+};
 
 const extensionApi = globalThis.browser || globalThis.chrome;
 const usesPromiseApi = !!globalThis.browser && extensionApi === globalThis.browser;
@@ -67,6 +78,10 @@ function findPreset(config) {
 }
 
 function ensurePresetOption(config) {
+  if (keylessProviders.has(config.provider)) {
+    config.model = "";
+    config.endpoint = "";
+  }
   const existing = findPreset(config);
   if (existing) return existing;
   const provider = config.provider || defaultConfig.provider;
@@ -90,12 +105,39 @@ function renderModelOptions(selectedPreset) {
   select.value = presetValue(selectedPreset);
 }
 
+function selectedProvider() {
+  return document.getElementById("modelPreset").value.split("|")[0] || defaultConfig.provider;
+}
+
+function refreshProviderUi() {
+  const provider = selectedProvider();
+  const isKeyless = keylessProviders.has(provider);
+  const apiKeyEl = document.getElementById("apiKey");
+  document.getElementById("providerHint").textContent = providerHints[provider] || "";
+  document.getElementById("apiKeyHint").textContent = isKeyless
+    ? "Google Web 不需要 API Key；如果翻译质量不理想，请切换到 AI/API 模型。"
+    : "API Key 只保存在 Chrome 本地 storage。";
+  apiKeyEl.disabled = isKeyless;
+  apiKeyEl.placeholder = isKeyless ? "Google Web 不需要 API Key" : "请输入你的 API Key";
+  if (isKeyless) apiKeyEl.value = "";
+}
+
 async function loadConfig() {
   const { [STORAGE_KEY]: value } = await storageGet(STORAGE_KEY);
   const config = { ...defaultConfig, ...(value || {}) };
   const selectedPreset = ensurePresetOption(config);
   renderModelOptions(selectedPreset);
   document.getElementById("apiKey").value = config.apiKey || "";
+  refreshProviderUi();
+}
+
+function openOptionsPage() {
+  if (extensionApi.runtime?.openOptionsPage) {
+    const result = extensionApi.runtime.openOptionsPage();
+    if (result && typeof result.catch === "function") result.catch(() => {});
+    return;
+  }
+  extensionApi.tabs?.create?.({ url: extensionApi.runtime.getURL("options.html") });
 }
 
 async function saveConfig() {
@@ -114,7 +156,8 @@ async function saveConfig() {
       provider,
       model,
       endpoint,
-      apiKey: document.getElementById("apiKey").value.trim(),
+      apiKey: keylessProviders.has(provider) ? "" : document.getElementById("apiKey").value.trim(),
+      useLocalBackend: enableLocalBackend && !!(value || {}).useLocalBackend,
     };
     await storageSet({ [STORAGE_KEY]: config });
     status.textContent = "已保存";
@@ -128,6 +171,8 @@ async function saveConfig() {
 }
 
 document.getElementById("saveBtn").addEventListener("click", saveConfig);
+document.getElementById("optionsBtn").addEventListener("click", openOptionsPage);
+document.getElementById("modelPreset").addEventListener("change", refreshProviderUi);
 loadConfig().catch((err) => {
   const status = document.getElementById("status");
   status.textContent = `加载失败：${err?.message || String(err)}`;

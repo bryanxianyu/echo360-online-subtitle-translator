@@ -1,17 +1,19 @@
 const STORAGE_KEY = "echo360TranslatorConfig";
 const extensionApi = window.Echo360ExtensionApi;
+const buildConfig = window.Echo360BuildConfig || {};
+const enableLocalBackend = buildConfig.enableLocalBackend !== false;
 
 const defaultConfig = {
   apiKey: "",
   useLocalBackend: false,
   backendUrl: "http://127.0.0.1:8765",
-  provider: "deepseek",
-  model: "deepseek-v4-flash",
+  provider: "google-web",
+  model: "",
   endpoint: "",
   target: "ZH",
   maxParagraphs: 6,
   maxChars: 1200,
-  concurrency: 96,
+  concurrency: 36,
   rps: 0,
   retries: 1,
   timeout: 10,
@@ -19,26 +21,94 @@ const defaultConfig = {
   fallbackMode: "immediate",
   repairConcurrency: 1,
   slowSplitThreshold: 0,
-  deepseekThinkingMode: "omit",
+  deepseekThinkingMode: "disabled",
   deeplFormality: ""
 };
 
 const providerDefaults = {
+  "google-web": { model: "", endpoint: "" },
   openai: { model: "gpt-5-nano", endpoint: "" },
   deepseek: { model: "deepseek-v4-flash", endpoint: "" },
   gemini: { model: "gemini-2.5-flash-lite", endpoint: "" },
   deepl: { model: "", endpoint: "" }
 };
+const keylessProviders = new Set(["google-web"]);
 
 const knownDefaultModels = new Set(Object.values(providerDefaults).map((item) => item.model).filter(Boolean));
+const providerHints = {
+  "google-web": "免费且无需 API Key，适合首次试用和低门槛使用；翻译质量通常不如专用 AI/API 模型。",
+  deepseek: "需要你自己的 DeepSeek API Key。更适合追求课程字幕翻译质量的长期使用；为了更丝滑的翻译体验，DeepSeek Thinking 默认为关闭。",
+  gemini: "需要你自己的 Gemini API Key。适合追求更好翻译质量；请确认所在地区和账号可用。",
+  openai: "需要你自己的 OpenAI API Key。适合追求更好翻译质量；Reasoning Effort 仅对支持模型生效。",
+  deepl: "需要你自己的 DeepL API Key。适合常规机器翻译质量需求；不支持 YUE 目标语言。"
+};
+
+function setStatus(text, isError = false) {
+  const status = document.getElementById("status");
+  status.textContent = text;
+  status.classList.toggle("error", !!isError);
+}
+
+function setInputValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function getInputValue(id, fallback = "") {
+  const el = document.getElementById(id);
+  return el ? el.value : fallback;
+}
+
+function refreshAdvancedUi(provider) {
+  const advancedRows = [...document.querySelectorAll("[data-provider-advanced]")];
+  let visibleCount = 0;
+  for (const row of advancedRows) {
+    const visible = row.dataset.providerAdvanced === provider;
+    row.hidden = !visible;
+    if (visible) visibleCount += 1;
+  }
+  const emptyHint = document.getElementById("advancedEmptyHint");
+  if (emptyHint) emptyHint.hidden = visibleCount > 0;
+}
+
+function refreshProviderUi() {
+  const provider = document.getElementById("provider").value;
+  const isKeyless = keylessProviders.has(provider);
+  const apiKeyEl = document.getElementById("apiKey");
+  const modelEl = document.getElementById("model");
+  const providerHint = document.getElementById("providerHint");
+  const apiKeyHint = document.getElementById("apiKeyHint");
+
+  providerHint.textContent = providerHints[provider] || "";
+  apiKeyHint.textContent = isKeyless
+    ? "Google Web 不需要 API Key；保存时会自动清空本地 API Key 字段。若翻译质量不理想，请切换到 AI/API 模型。"
+    : "API Key 仅保存在 Chrome 本地 storage，用于请求你选择的翻译服务。";
+  apiKeyEl.disabled = isKeyless;
+  apiKeyEl.placeholder = isKeyless ? "Google Web 不需要 API Key" : "请输入你的 API Key";
+  if (isKeyless) apiKeyEl.value = "";
+  modelEl.disabled = isKeyless;
+  if (isKeyless) modelEl.value = "";
+  refreshAdvancedUi(provider);
+}
+
+function refreshBuildUi() {
+  const section = document.getElementById("localBackendSection");
+  const checkbox = document.getElementById("useLocalBackend");
+  if (!enableLocalBackend) {
+    if (section) section.hidden = true;
+    if (checkbox) checkbox.checked = false;
+  }
+}
 
 async function loadConfig() {
   const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
   const config = { ...defaultConfig, ...(value || {}) };
-  document.getElementById("useLocalBackend").checked = !!config.useLocalBackend;
-  document.getElementById("backendUrl").value = config.backendUrl;
+  const useLocalBackendEl = document.getElementById("useLocalBackend");
+  const backendUrlEl = document.getElementById("backendUrl");
+  if (useLocalBackendEl) useLocalBackendEl.checked = enableLocalBackend && !!config.useLocalBackend;
+  if (backendUrlEl) backendUrlEl.value = config.backendUrl;
   document.getElementById("apiKey").value = config.apiKey;
-  document.getElementById("provider").value = config.provider;
+  document.getElementById("provider").value = providerDefaults[config.provider] ? config.provider : defaultConfig.provider;
   document.getElementById("model").value = config.model;
   document.getElementById("endpoint").value = config.endpoint || "";
   const targetEl = document.getElementById("target");
@@ -48,18 +118,11 @@ async function loadConfig() {
   } else {
     targetEl.value = "ZH";
   }
-  document.getElementById("maxParagraphs").value = String(config.maxParagraphs);
-  document.getElementById("maxChars").value = String(config.maxChars);
-  document.getElementById("concurrency").value = String(config.concurrency);
-  document.getElementById("rps").value = String(config.rps);
-  document.getElementById("retries").value = String(config.retries);
-  document.getElementById("timeout").value = String(config.timeout);
-  document.getElementById("reasoningEffort").value = config.reasoningEffort || "";
-  document.getElementById("fallbackMode").value = config.fallbackMode || "immediate";
-  document.getElementById("repairConcurrency").value = String(config.repairConcurrency || 1);
-  document.getElementById("slowSplitThreshold").value = String(config.slowSplitThreshold || 0);
-  document.getElementById("deepseekThinkingMode").value = config.deepseekThinkingMode || "omit";
-  document.getElementById("deeplFormality").value = config.deeplFormality || "";
+  setInputValue("reasoningEffort", config.reasoningEffort || "");
+  setInputValue("deepseekThinkingMode", config.deepseekThinkingMode || defaultConfig.deepseekThinkingMode);
+  setInputValue("deeplFormality", config.deeplFormality || "");
+  refreshProviderUi();
+  refreshBuildUi();
 }
 
 function applyProviderDefaults() {
@@ -73,6 +136,7 @@ function applyProviderDefaults() {
   if (!endpointEl.value.trim()) {
     endpointEl.value = defaults.endpoint;
   }
+  refreshProviderUi();
 }
 
 function isLocalBackendUrl(url) {
@@ -85,44 +149,51 @@ function isLocalBackendUrl(url) {
 }
 
 async function saveConfig() {
-  const useLocalBackend = document.getElementById("useLocalBackend").checked;
-  const rawBackendUrl = document.getElementById("backendUrl").value.trim() || defaultConfig.backendUrl;
+  const provider = document.getElementById("provider").value;
+  const { [STORAGE_KEY]: existingValue } = await extensionApi.storage.local.get(STORAGE_KEY);
+  const existing = { ...defaultConfig, ...(existingValue || {}) };
+  const useLocalBackendEl = document.getElementById("useLocalBackend");
+  const backendUrlEl = document.getElementById("backendUrl");
+  const useLocalBackend = enableLocalBackend && !!useLocalBackendEl?.checked;
+  const rawBackendUrl = backendUrlEl?.value.trim() || defaultConfig.backendUrl;
   if (useLocalBackend && !isLocalBackendUrl(rawBackendUrl)) {
-    const status = document.getElementById("status");
-    status.textContent = "错误：Backend 地址只允许 localhost 或 127.0.0.1";
-    status.style.color = "red";
-    setTimeout(() => { status.textContent = ""; status.style.color = ""; }, 3000);
+    setStatus("错误：Backend 地址只允许 localhost、127.0.0.1 或 ::1", true);
+    setTimeout(() => setStatus(""), 3000);
     return;
   }
   const config = {
     useLocalBackend,
     backendUrl: rawBackendUrl,
-    apiKey: document.getElementById("apiKey").value.trim(),
-    provider: document.getElementById("provider").value,
-    model: document.getElementById("model").value.trim(),
+    apiKey: keylessProviders.has(provider) ? "" : document.getElementById("apiKey").value.trim(),
+    provider,
+    model: keylessProviders.has(provider) ? "" : document.getElementById("model").value.trim(),
     endpoint: document.getElementById("endpoint").value.trim(),
     target: (document.getElementById("target").value || "ZH").toUpperCase(),
-    maxParagraphs: Math.max(1, Number(document.getElementById("maxParagraphs").value) || 6),
-    maxChars: Math.max(100, Number(document.getElementById("maxChars").value) || 1200),
-    concurrency: Math.max(1, Number(document.getElementById("concurrency").value) || 96),
-    rps: Math.max(0, Number(document.getElementById("rps").value) || 0),
-    retries: Math.max(0, Number(document.getElementById("retries").value) || 1),
-    timeout: Math.max(1, Number(document.getElementById("timeout").value) || 10),
-    reasoningEffort: document.getElementById("reasoningEffort").value || "",
-    fallbackMode: document.getElementById("fallbackMode").value || "immediate",
-    repairConcurrency: Math.max(1, Number(document.getElementById("repairConcurrency").value) || 1),
-    slowSplitThreshold: Math.max(0, Number(document.getElementById("slowSplitThreshold").value) || 0),
-    deepseekThinkingMode: document.getElementById("deepseekThinkingMode").value || "omit",
-    deeplFormality: document.getElementById("deeplFormality").value || ""
+    maxParagraphs: Math.max(1, Number(existing.maxParagraphs) || defaultConfig.maxParagraphs),
+    maxChars: Math.max(100, Number(existing.maxChars) || defaultConfig.maxChars),
+    concurrency: Math.max(1, Number(existing.concurrency) || defaultConfig.concurrency),
+    rps: Math.max(0, Number(existing.rps) || defaultConfig.rps),
+    retries: Math.max(0, Number(existing.retries) || defaultConfig.retries),
+    timeout: Math.max(1, Number(existing.timeout) || defaultConfig.timeout),
+    reasoningEffort: provider === "openai" ? getInputValue("reasoningEffort", "") : "",
+    fallbackMode: existing.fallbackMode || defaultConfig.fallbackMode,
+    repairConcurrency: Math.max(1, Number(existing.repairConcurrency) || defaultConfig.repairConcurrency),
+    slowSplitThreshold: Math.max(0, Number(existing.slowSplitThreshold) || defaultConfig.slowSplitThreshold),
+    deepseekThinkingMode: provider === "deepseek"
+      ? getInputValue("deepseekThinkingMode", defaultConfig.deepseekThinkingMode)
+      : defaultConfig.deepseekThinkingMode,
+    deeplFormality: provider === "deepl" ? getInputValue("deeplFormality", "") : ""
   };
   await extensionApi.storage.local.set({ [STORAGE_KEY]: config });
-  const status = document.getElementById("status");
-  status.textContent = "已保存";
+  setStatus("已保存。请回到 Echo360 页面，点击“加载翻译字幕”。");
   setTimeout(() => {
-    status.textContent = "";
+    setStatus("");
   }, 1200);
 }
 
 document.getElementById("provider").addEventListener("change", applyProviderDefaults);
 document.getElementById("saveBtn").addEventListener("click", saveConfig);
-loadConfig();
+refreshBuildUi();
+loadConfig().catch((err) => {
+  setStatus(`加载失败：${err?.message || String(err)}`, true);
+});

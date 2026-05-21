@@ -8,6 +8,11 @@
     SIZE_MAP,
   } = ns.constants;
   const extensionApi = ns.browserApi;
+  const KEYLESS_PROVIDERS = new Set(["google-web"]);
+
+  function isLocalBackendEnabled() {
+    return ns.buildConfig?.enableLocalBackend !== false;
+  }
 
   function getContextKey() {
     const m = location.pathname.match(/\/lesson\/([^/]+)/);
@@ -40,7 +45,11 @@
   }
 
   async function setCacheStore(entryOrNull) {
-    await extensionApi.storage.local.set({ [CACHE_KEY]: entryOrNull || null });
+    try {
+      await extensionApi.storage.local.set({ [CACHE_KEY]: entryOrNull || null });
+    } catch (err) {
+      console.warn("[echo360-translator] subtitle cache skipped:", err?.message || String(err));
+    }
   }
 
   function buildConfigSignature(cfg) {
@@ -59,18 +68,17 @@
 
   async function getConfig() {
     const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
-    if (value) return value;
-    return {
+    const config = value || {
       apiKey: "",
       useLocalBackend: false,
       backendUrl: "http://127.0.0.1:8765",
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
+      provider: "google-web",
+      model: "",
       endpoint: "",
       target: "ZH",
       maxParagraphs: 6,
       maxChars: 1200,
-      concurrency: 96,
+      concurrency: 36,
       rps: 0,
       retries: 1,
       timeout: 10,
@@ -78,9 +86,13 @@
       fallbackMode: "immediate",
       repairConcurrency: 1,
       slowSplitThreshold: 0,
-      deepseekThinkingMode: "omit",
+      deepseekThinkingMode: "disabled",
       deeplFormality: "",
     };
+    if (!isLocalBackendEnabled()) {
+      return { ...config, useLocalBackend: false };
+    }
+    return config;
   }
 
   async function saveConfig(config) {
@@ -88,12 +100,13 @@
   }
 
   async function askApiKeyIfNeeded(config) {
-    if (config.apiKey && config.apiKey.trim()) return config;
-    const apiKey = window.prompt("请输入翻译 API Key（仅存本地浏览器 storage）:");
-    if (!apiKey || !apiKey.trim()) return null;
-    const next = { ...config, apiKey: apiKey.trim() };
-    await saveConfig(next);
-    return next;
+    const provider = String(config.provider || "").toLowerCase();
+    const apiKey = String(config.apiKey || "").trim();
+    if (KEYLESS_PROVIDERS.has(provider)) {
+      return { ...config, apiKey: "" };
+    }
+    if (apiKey) return config;
+    return null;
   }
 
   ns.storage = {
