@@ -69,7 +69,7 @@
       const { vttText, sourceId, sourceMeta } = await ns.translationService.resolveSourceVtt(video);
       let cfg = await ns.storage.getConfig();
       cfg = await ns.storage.askApiKeyIfNeeded(cfg);
-      if (!cfg) throw new Error("当前 Provider 需要 API Key。请点击扩展图标填写，或切换到 Google Web。");
+      if (!cfg) throw new Error("当前 Provider 需要 API Key。请点击扩展图标填写，或切换到 Google Translate。");
 
       const prefs = await ns.storage.getPrefs();
       ns.renderer.applySubtitleSize(prefs.size);
@@ -232,7 +232,7 @@
     const firstRunKey = "echo360TranslatorFirstRunShown";
     const firstRun = await extensionApi.storage.local.get(firstRunKey);
     if (!firstRun[firstRunKey]) {
-      ns.ui.setStatusText("首次使用：默认 Google Web 可免费试用；若重视质量，请在扩展设置中配置 AI/API 模型。");
+      ns.ui.setStatusText("首次使用：默认 Google Translate 可免费试用；若重视质量，请在扩展设置中配置 AI/API 模型。");
       await extensionApi.storage.local.set({ [firstRunKey]: true });
     }
   }

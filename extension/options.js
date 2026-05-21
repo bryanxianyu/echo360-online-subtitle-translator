@@ -81,10 +81,10 @@ function refreshProviderUi() {
 
   providerHint.textContent = providerHints[provider] || "";
   apiKeyHint.textContent = isKeyless
-    ? "Google Web 不需要 API Key；保存时会自动清空本地 API Key 字段。若翻译质量不理想，请切换到 AI/API 模型。"
+    ? "Google Translate 不需要 API Key；保存时会自动清空本地 API Key 字段。若翻译质量不理想，请切换到 AI/API 模型。"
     : "API Key 仅保存在 Chrome 本地 storage，用于请求你选择的翻译服务。";
   apiKeyEl.disabled = isKeyless;
-  apiKeyEl.placeholder = isKeyless ? "Google Web 不需要 API Key" : "请输入你的 API Key";
+  apiKeyEl.placeholder = isKeyless ? "Google Translate 不需要 API Key" : "请输入你的 API Key";
   if (isKeyless) apiKeyEl.value = "";
   modelEl.disabled = isKeyless;
   if (isKeyless) modelEl.value = "";

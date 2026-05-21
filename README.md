@@ -130,7 +130,7 @@ dev 构建保留本地后端入口和 localhost 权限。
 - 扩展目标语言支持 `ZH-HK` 与 `YUE`
 - 当 provider 为 `deepl` 时，不支持 `YUE`（请使用 AI provider，如 `deepseek`/`openai`/`gemini`）
 
-Google Web provider：
+Google Translate provider：
 - `google-web` 使用非官方网页端接口，不需要 API key，适合首次安装后快速试用
 - store 构建会由扩展前端直接请求；dev 构建可选择通过本地后端转发
 - 后端/脚本路径会自动使用 `concurrency=36, max_chars=1200, max_paragraphs=10`

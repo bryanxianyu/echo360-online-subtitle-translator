@@ -292,7 +292,7 @@ globalThis.Echo360DirectTranslator = (() => {
     const chunks = Array.isArray(data?.[0]) ? data[0] : [];
     const text = chunks.map((item) => Array.isArray(item) ? item[0] || "" : "").join("").trim();
     if (text) return text;
-    throw new Error("Google web response missing translated text");
+    throw new Error("Google Translate response missing translated text");
   }
 
   async function callOpenAi(texts, cfg, jsonMode = false) {

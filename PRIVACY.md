@@ -15,7 +15,7 @@ These values are stored in Chrome local storage on the user's device.
 
 When the user loads translated subtitles, the source subtitle text is sent to the selected translation provider:
 
-- Google Web
+- Google Translate
 - DeepSeek
 - OpenAI
 - Gemini

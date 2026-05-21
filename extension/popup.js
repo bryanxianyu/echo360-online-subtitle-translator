@@ -25,7 +25,7 @@ const defaultConfig = {
 };
 
 const modelPresets = [
-  { provider: "google-web", model: "", endpoint: "", label: "Google Web" },
+  { provider: "google-web", model: "", endpoint: "", label: "Google Translate" },
   { provider: "deepseek", model: "deepseek-v4-flash", endpoint: "", label: "DeepSeek - deepseek-v4-flash" },
   { provider: "gemini", model: "gemini-2.5-flash-lite", endpoint: "", label: "Gemini - gemini-2.5-flash-lite" },
   { provider: "openai", model: "gpt-5-nano", endpoint: "", label: "OpenAI - gpt-5-nano" },
@@ -115,10 +115,10 @@ function refreshProviderUi() {
   const apiKeyEl = document.getElementById("apiKey");
   document.getElementById("providerHint").textContent = providerHints[provider] || "";
   document.getElementById("apiKeyHint").textContent = isKeyless
-    ? "Google Web 不需要 API Key；如果翻译质量不理想，请切换到 AI/API 模型。"
+    ? "Google Translate 不需要 API Key；如果翻译质量不理想，请切换到 AI/API 模型。"
     : "API Key 只保存在 Chrome 本地 storage。";
   apiKeyEl.disabled = isKeyless;
-  apiKeyEl.placeholder = isKeyless ? "Google Web 不需要 API Key" : "请输入你的 API Key";
+  apiKeyEl.placeholder = isKeyless ? "Google Translate 不需要 API Key" : "请输入你的 API Key";
   if (isKeyless) apiKeyEl.value = "";
 }
 

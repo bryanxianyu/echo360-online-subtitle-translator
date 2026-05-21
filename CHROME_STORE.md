@@ -20,7 +20,7 @@ Translate Echo360 lecture subtitles and display them on recorded videos.
 ## Permission Justification
 
 - `storage`: Saves extension settings, optional API key, subtitle display preferences, and local subtitle cache.
-- `https://translate.googleapis.com/*`: Google Web translation provider.
+- `https://translate.googleapis.com/*`: Google Translate provider.
 - `https://api.deepseek.com/*`: DeepSeek provider.
 - `https://api.openai.com/*`: OpenAI provider.
 - `https://generativelanguage.googleapis.com/*`: Gemini provider.
@@ -40,8 +40,8 @@ This extension stores settings and optional API keys locally in Chrome storage. 
 ## Final Manual Checks
 
 - Reload the unpacked extension from `chrome://extensions`.
-- Confirm the default provider is `Google Web` for free first-run use.
-- Confirm Google Web works without an API key and is described as quick/free trial use, not the quality-focused recommendation.
+- Confirm the default provider is `Google Translate` for free first-run use.
+- Confirm Google Translate works without an API key and is described as quick/free trial use, not the quality-focused recommendation.
 - Confirm DeepSeek/OpenAI/Gemini/DeepL are described as better-quality AI/API options and show that an API key is required.
 - Confirm options page saves provider and target language.
 - Confirm the store build does not show the local backend option.

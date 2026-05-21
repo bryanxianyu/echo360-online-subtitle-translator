@@ -130,7 +130,7 @@ Language notes:
 - Extension target options include `ZH-HK` and `YUE`
 - `deepl` does not support `YUE`; use an AI provider instead (`deepseek`/`openai`/`gemini`)
 
-Google Web provider:
+Google Translate provider:
 - `google-web` uses an unofficial web endpoint and does not require an API key, so it is useful for quick first-run testing
 - The store build calls it directly from the extension frontend; the dev build can optionally proxy it through the local backend
 - The backend/script path caps it at `concurrency=36, max_chars=1200, max_paragraphs=10`
