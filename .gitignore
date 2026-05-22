@@ -8,3 +8,4 @@ backend/.cache/
 *.log
 logs/
 dist/
+scripts/bench-google-web.mjs

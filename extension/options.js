@@ -13,7 +13,7 @@ const defaultConfig = {
   target: "ZH",
   maxParagraphs: 6,
   maxChars: 1200,
-  concurrency: 36,
+  concurrency: 96,
   rps: 0,
   retries: 1,
   timeout: 10,
@@ -59,8 +59,17 @@ function getInputValue(id, fallback = "") {
   return el ? el.value : fallback;
 }
 
+function getNumberValue(id, fallback, min) {
+  const raw = getInputValue(id, "");
+  const parsed = raw === "" ? Number(fallback) : Number(raw);
+  const fallbackNumber = Number(fallback);
+  const value = Number.isFinite(parsed) ? parsed : fallbackNumber;
+  return Math.max(min, Number.isFinite(value) ? value : min);
+}
+
 function refreshAdvancedUi(provider) {
   const advancedRows = [...document.querySelectorAll("[data-provider-advanced]")];
+  const hasDevAdvanced = document.querySelector("[data-dev-advanced]") !== null;
   let visibleCount = 0;
   for (const row of advancedRows) {
     const visible = row.dataset.providerAdvanced === provider;
@@ -68,7 +77,7 @@ function refreshAdvancedUi(provider) {
     if (visible) visibleCount += 1;
   }
   const emptyHint = document.getElementById("advancedEmptyHint");
-  if (emptyHint) emptyHint.hidden = visibleCount > 0;
+  if (emptyHint) emptyHint.hidden = visibleCount > 0 || hasDevAdvanced;
 }
 
 function refreshProviderUi() {
@@ -118,6 +127,15 @@ async function loadConfig() {
   } else {
     targetEl.value = "ZH";
   }
+  setInputValue("maxParagraphs", String(config.maxParagraphs));
+  setInputValue("maxChars", String(config.maxChars));
+  setInputValue("concurrency", String(config.concurrency));
+  setInputValue("rps", String(config.rps));
+  setInputValue("retries", String(config.retries));
+  setInputValue("timeout", String(config.timeout));
+  setInputValue("fallbackMode", config.fallbackMode || defaultConfig.fallbackMode);
+  setInputValue("repairConcurrency", String(config.repairConcurrency));
+  setInputValue("slowSplitThreshold", String(config.slowSplitThreshold));
   setInputValue("reasoningEffort", config.reasoningEffort || "");
   setInputValue("deepseekThinkingMode", config.deepseekThinkingMode || defaultConfig.deepseekThinkingMode);
   setInputValue("deeplFormality", config.deeplFormality || "");
@@ -169,16 +187,16 @@ async function saveConfig() {
     model: keylessProviders.has(provider) ? "" : document.getElementById("model").value.trim(),
     endpoint: document.getElementById("endpoint").value.trim(),
     target: (document.getElementById("target").value || "ZH").toUpperCase(),
-    maxParagraphs: Math.max(1, Number(existing.maxParagraphs) || defaultConfig.maxParagraphs),
-    maxChars: Math.max(100, Number(existing.maxChars) || defaultConfig.maxChars),
-    concurrency: Math.max(1, Number(existing.concurrency) || defaultConfig.concurrency),
-    rps: Math.max(0, Number(existing.rps) || defaultConfig.rps),
-    retries: Math.max(0, Number(existing.retries) || defaultConfig.retries),
-    timeout: Math.max(1, Number(existing.timeout) || defaultConfig.timeout),
+    maxParagraphs: getNumberValue("maxParagraphs", existing.maxParagraphs ?? defaultConfig.maxParagraphs, 1),
+    maxChars: getNumberValue("maxChars", existing.maxChars ?? defaultConfig.maxChars, 100),
+    concurrency: getNumberValue("concurrency", existing.concurrency ?? defaultConfig.concurrency, 1),
+    rps: getNumberValue("rps", existing.rps ?? defaultConfig.rps, 0),
+    retries: getNumberValue("retries", existing.retries ?? defaultConfig.retries, 0),
+    timeout: getNumberValue("timeout", existing.timeout ?? defaultConfig.timeout, 1),
     reasoningEffort: provider === "openai" ? getInputValue("reasoningEffort", "") : "",
-    fallbackMode: existing.fallbackMode || defaultConfig.fallbackMode,
-    repairConcurrency: Math.max(1, Number(existing.repairConcurrency) || defaultConfig.repairConcurrency),
-    slowSplitThreshold: Math.max(0, Number(existing.slowSplitThreshold) || defaultConfig.slowSplitThreshold),
+    fallbackMode: getInputValue("fallbackMode", existing.fallbackMode || defaultConfig.fallbackMode) || defaultConfig.fallbackMode,
+    repairConcurrency: getNumberValue("repairConcurrency", existing.repairConcurrency ?? defaultConfig.repairConcurrency, 1),
+    slowSplitThreshold: getNumberValue("slowSplitThreshold", existing.slowSplitThreshold ?? defaultConfig.slowSplitThreshold, 0),
     deepseekThinkingMode: provider === "deepseek"
       ? getInputValue("deepseekThinkingMode", defaultConfig.deepseekThinkingMode)
       : defaultConfig.deepseekThinkingMode,

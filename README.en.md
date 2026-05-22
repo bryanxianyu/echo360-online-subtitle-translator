@@ -114,17 +114,19 @@ The dev build keeps the local backend entry and localhost permissions.
 - target: `ZH`
 - max_paragraphs: `6`
 - max_chars: `1200`
-- concurrency: `36`
+- concurrency: `96`
 - rps: `0`
 - retries: `1`
 - timeout: `10`
 - reasoning_effort: empty by default
 - deepseek_thinking_mode: `disabled`
 
-Advanced translation settings only show provider-specific options:
+In the Chrome Web Store build, advanced translation settings only show provider-specific options:
 - OpenAI: `Reasoning Effort`
 - DeepSeek: `DeepSeek Thinking` (disabled by default to reduce latency)
 - DeepL: `DeepL Formality`
+
+The dev build also keeps local-backend tuning controls such as `maxParagraphs`, `maxChars`, `concurrency`, `rps`, `retries`, `timeout`, `fallbackMode`, `repairConcurrency`, and `slowSplitThreshold`.
 
 Language notes:
 - Extension target options include `ZH-HK` and `YUE`
@@ -133,7 +135,7 @@ Language notes:
 Google Translate provider:
 - `google-web` uses an unofficial web endpoint and does not require an API key, so it is useful for quick first-run testing
 - The store build calls it directly from the extension frontend; the dev build can optionally proxy it through the local backend
-- The backend/script path caps it at `concurrency=36, max_chars=1200, max_paragraphs=10`
+- The backend/script path caps it at `concurrency=96, max_chars=1200, max_paragraphs=10`
 - This endpoint is unofficial, so stability, availability, and translation quality are not guaranteed
 - For better subtitle translation quality, use an AI/API provider such as `deepseek`, `openai`, `gemini`, or `deepl` with your own API key
 

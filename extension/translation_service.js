@@ -58,7 +58,7 @@
       target: cfg.target,
       max_paragraphs: Number(cfg.maxParagraphs) || 6,
       max_chars: Number(cfg.maxChars) || 1200,
-      concurrency: Number(cfg.concurrency) || 36,
+      concurrency: Number(cfg.concurrency) || 96,
       rps: Number(cfg.rps) || 0,
       retries: Number(cfg.retries) || 1,
       bilingual: false,

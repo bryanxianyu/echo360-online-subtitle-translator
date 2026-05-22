@@ -78,7 +78,7 @@
       target: "ZH",
       maxParagraphs: 6,
       maxChars: 1200,
-      concurrency: 36,
+      concurrency: 96,
       rps: 0,
       retries: 1,
       timeout: 10,

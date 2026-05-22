@@ -9,7 +9,7 @@ globalThis.Echo360DirectTranslator = (() => {
     "google-web": { model: "", endpoint: "https://translate.googleapis.com/translate_a/single" },
   };
   const PROVIDER_CONCURRENCY_CAPS = {
-    "google-web": 36,
+    "google-web": 96,
   };
   const OPENAI_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 

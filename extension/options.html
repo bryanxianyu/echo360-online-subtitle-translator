@@ -243,6 +243,52 @@
           <div class="details-body">
             <div id="advancedEmptyHint" class="hint">当前翻译服务没有额外高级参数。</div>
 
+            <!-- DEV_ADVANCED_START -->
+            <div data-dev-advanced>
+              <div class="hint">以下参数用于本地后端和开发调试；Chrome 商店版会隐藏这些内部参数。</div>
+
+              <label for="maxParagraphs">Max Paragraphs</label>
+              <input id="maxParagraphs" type="number" min="1" step="1" />
+              <div class="hint">每个翻译批次最多包含多少段字幕。</div>
+
+              <label for="maxChars">Max Chars</label>
+              <input id="maxChars" type="number" min="100" step="50" />
+              <div class="hint">每个翻译批次最多包含多少字符。</div>
+
+              <label for="concurrency">Concurrency</label>
+              <input id="concurrency" type="number" min="1" step="1" />
+              <div class="hint">并发翻译请求数。</div>
+
+              <label for="rps">RPS</label>
+              <input id="rps" type="number" min="0" step="0.1" />
+              <div class="hint">每秒请求数限制。0 表示不主动限速。</div>
+
+              <label for="retries">Retries</label>
+              <input id="retries" type="number" min="0" step="1" />
+              <div class="hint">失败后的重试次数。</div>
+
+              <label for="timeout">Timeout (seconds)</label>
+              <input id="timeout" type="number" min="1" step="1" />
+              <div class="hint">单个翻译请求超时时间。</div>
+
+              <label for="fallbackMode">Fallback Mode</label>
+              <select id="fallbackMode">
+                <option value="immediate">immediate</option>
+                <option value="after-repair">after-repair</option>
+                <option value="off">off</option>
+              </select>
+              <div class="hint">翻译失败时的回退策略。</div>
+
+              <label for="repairConcurrency">Repair Concurrency</label>
+              <input id="repairConcurrency" type="number" min="1" step="1" />
+              <div class="hint">修复阶段的并发数。</div>
+
+              <label for="slowSplitThreshold">Slow Split Threshold (seconds)</label>
+              <input id="slowSplitThreshold" type="number" min="0" step="0.1" />
+              <div class="hint">超过该耗时后触发更细拆分。0 表示关闭。</div>
+            </div>
+            <!-- DEV_ADVANCED_END -->
+
             <div data-provider-advanced="openai" hidden>
               <label for="reasoningEffort">Reasoning Effort</label>
               <select id="reasoningEffort">

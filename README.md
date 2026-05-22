@@ -114,17 +114,19 @@ dev 构建保留本地后端入口和 localhost 权限。
 - target: `ZH`
 - max_paragraphs: `6`
 - max_chars: `1200`
-- concurrency: `36`
+- concurrency: `96`
 - rps: `0`
 - retries: `1`
 - timeout: `10`
 - reasoning_effort: 默认空
 - deepseek_thinking_mode: `disabled`
 
-高级翻译参数只显示与当前 provider 相关的设置：
+Chrome 商店版的高级翻译参数只显示与当前 provider 相关的设置：
 - OpenAI: `Reasoning Effort`
 - DeepSeek: `DeepSeek Thinking`（默认关闭，减少延迟）
 - DeepL: `DeepL Formality`
+
+dev 构建会额外保留本地后端调试参数，例如 `maxParagraphs`、`maxChars`、`concurrency`、`rps`、`retries`、`timeout`、`fallbackMode`、`repairConcurrency` 和 `slowSplitThreshold`。
 
 语言补充：
 - 扩展目标语言支持 `ZH-HK` 与 `YUE`
@@ -133,7 +135,7 @@ dev 构建保留本地后端入口和 localhost 权限。
 Google Translate provider：
 - `google-web` 使用非官方网页端接口，不需要 API key，适合首次安装后快速试用
 - store 构建会由扩展前端直接请求；dev 构建可选择通过本地后端转发
-- 后端/脚本路径会自动使用 `concurrency=36, max_chars=1200, max_paragraphs=10`
+- 后端/脚本路径会自动使用 `concurrency=96, max_chars=1200, max_paragraphs=10`
 - 该接口非官方，稳定性、可用性和翻译质量不保证
 - 如果重视字幕翻译质量，建议改用 AI/API provider（如 `deepseek`/`openai`/`gemini`/`deepl`）并填写自己的 API Key
 

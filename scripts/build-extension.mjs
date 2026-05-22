@@ -187,10 +187,15 @@ async function patchStoreFiles(outputDir, target) {
 
   const optionsPath = path.join(outputDir, "options.html");
   const optionsHtml = await fs.readFile(optionsPath, "utf8");
-  const strippedOptionsHtml = optionsHtml.replace(
-    /\n\s*<!-- LOCAL_BACKEND_START -->[\s\S]*?<!-- LOCAL_BACKEND_END -->\n?/,
-    "\n"
-  );
+  const strippedOptionsHtml = optionsHtml
+    .replace(
+      /\n\s*<!-- LOCAL_BACKEND_START -->[\s\S]*?<!-- LOCAL_BACKEND_END -->\n?/,
+      "\n"
+    )
+    .replace(
+      /\n\s*<!-- DEV_ADVANCED_START -->[\s\S]*?<!-- DEV_ADVANCED_END -->\n?/,
+      "\n"
+    );
   await fs.writeFile(optionsPath, strippedOptionsHtml);
 }
 

@@ -25,7 +25,7 @@ JOB_TTL_SECONDS = 60 * 60
 JOB_MAX_COUNT = 100
 KEYLESS_PROVIDERS = {"google-web"}
 WEB_PROVIDER_LIMITS = {
-    "google-web": {"concurrency": 36, "max_chars": 1200, "max_paragraphs": 10, "timeout": 10.0},
+    "google-web": {"concurrency": 96, "max_chars": 1200, "max_paragraphs": 10, "timeout": 10.0},
 }
 
 
