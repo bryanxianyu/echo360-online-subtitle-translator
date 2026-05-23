@@ -7,7 +7,7 @@
 
   const SPLIT_CUE_GAP_MAP = {
     small: 3.8,
-    medium: 4.5,
+    medium: 4.8,
     large: 5.5,
   };
 
