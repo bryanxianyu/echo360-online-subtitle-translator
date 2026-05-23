@@ -3,7 +3,6 @@
   const {
     DEFAULT_SUBTITLE_SIZE,
     CUE_LINE_MAP,
-    BILINGUAL_LINE_PAIR_MAP,
   } = ns.constants;
 
   function formatVttTime(seconds) {
@@ -55,30 +54,6 @@
       i = j;
     }
     return out;
-  }
-
-  function buildBilingualVtt(translatedVtt, originalVtt, reverseOrder = false, size = DEFAULT_SUBTITLE_SIZE) {
-    const trans = parseVttBlocks(translatedVtt);
-    const orig = parseVttBlocks(originalVtt);
-    if (trans.length === 0 || orig.length === 0) return translatedVtt;
-    const n = Math.min(trans.length, orig.length);
-    const linePair = BILINGUAL_LINE_PAIR_MAP[size] || BILINGUAL_LINE_PAIR_MAP[DEFAULT_SUBTITLE_SIZE];
-    const lines = ["WEBVTT", ""];
-    for (let i = 0; i < n; i += 1) {
-      const [zhText, enText] = reverseOrder
-        ? [orig[i].text, trans[i].text]
-        : [trans[i].text, orig[i].text];
-      lines.push(`${i + 1}a`);
-      lines.push(`${trans[i].time} line:${linePair.upper} position:50% align:middle`);
-      lines.push(zhText);
-      lines.push("");
-
-      lines.push(`${i + 1}b`);
-      lines.push(`${trans[i].time} line:${linePair.lower} position:50% align:middle`);
-      lines.push(enText);
-      lines.push("");
-    }
-    return lines.join("\n");
   }
 
   function normalizeCueText(text) {
@@ -194,7 +169,6 @@
     cueTextToLine,
     parseVttStats,
     parseVttBlocks,
-    buildBilingualVtt,
     isAlreadyBilingualVtt,
     normalizeBilingualOrderZhFirst,
     extractPrimaryTranslatedVtt,

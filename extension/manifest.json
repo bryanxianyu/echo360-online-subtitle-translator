@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Echo360 Online Subtitle Translator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Translate Echo360 lecture subtitles and display them on recorded videos.",
   "options_page": "options.html",
   "icons": {
@@ -83,6 +83,7 @@
         "browser_api.js",
         "constants.js",
         "vtt.js",
+        "subtitle_strategy.js",
         "storage.js",
         "video.js",
         "source_finder.js",

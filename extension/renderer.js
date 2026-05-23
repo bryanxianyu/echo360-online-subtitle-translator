@@ -43,7 +43,7 @@
     const pct = isSafari()
       ? (SAFARI_SIZE_MAP[normalizedSize] || SAFARI_SIZE_MAP[DEFAULT_SUBTITLE_SIZE])
       : (SIZE_MAP[normalizedSize] || SIZE_MAP[DEFAULT_SUBTITLE_SIZE]);
-    const lineHeight = isSafari() && isFullscreen() ? "1.08" : "0.95";
+    const lineHeight = isSafari() && isFullscreen() ? "1.08" : "1.3";
     ensureFullscreenListener();
     if (!styleEl) {
       styleEl = document.createElement("style");
@@ -211,7 +211,12 @@
       ? ns.vtt.extractPrimaryTranslatedVtt(ns.vtt.normalizeBilingualOrderZhFirst(translatedVtt))
       : translatedVtt;
     const rawPayload = bilingual
-      ? ns.vtt.buildBilingualVtt(normalizedTranslated, originalVtt, reverseOrder, size)
+      ? ns.subtitleStrategy.buildBilingualVtt({
+        translatedVtt: normalizedTranslated,
+        originalVtt,
+        reverseOrder,
+        size,
+      })
       : normalizedTranslated;
     const payload = ns.vtt.applyCueBottom(rawPayload, size);
     lastRenderedVtt = normalizedTranslated;
