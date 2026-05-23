@@ -2,21 +2,21 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-用于 Echo360 录播课的 Chrome 扩展和本地 FastAPI 后端，用来加载并显示翻译字幕。
+用于 Echo360 录播课的 Chrome/Safari 扩展，用来加载并显示翻译字幕；本地 FastAPI 后端保留为开发调试、fallback 和批处理路径。
 
 ## 功能概览
 
 1. 在当前 Echo360 录播课页面中寻找 VTT 字幕源。
-2. 根据配置通过扩展前端直连翻译服务，或发送到本地后端。
-3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本：
+2. 默认通过扩展前端直连翻译服务；dev 构建也可以发送到本地后端。
+3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本作为 fallback/批处理工具：
    `translator/translate_vtt_zh_deepl_native.py`
 4. 扩展将翻译后的 VTT 挂载回当前 Echo360 视频。
 
 ## 目录结构
 
 ```text
-backend/     FastAPI 服务和本地翻译缓存
-extension/   Chrome 扩展文件
+backend/     FastAPI 开发/fallback 服务和本地翻译缓存
+extension/   Chrome/Safari 扩展文件
 ```
 
 扩展 content script 模块：

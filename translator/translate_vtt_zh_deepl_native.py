@@ -207,7 +207,9 @@ def provider_defaults(provider: str) -> dict[str, int | str]:
 def normalize_openai_compatible_endpoint(endpoint: str, provider: str) -> str:
     ep = (endpoint or "").strip()
     if not ep:
-        return OPENAI_RESPONSES_ENDPOINT if provider == "openai" else DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT
+        if provider == "openai":
+            return OPENAI_RESPONSES_ENDPOINT
+        return DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT
 
     if provider == "deepseek" and ep.startswith("https://api.deepseek.com"):
         if ep.endswith("/chat/completions") or ep.endswith("/v1/chat/completions"):
@@ -526,7 +528,7 @@ def _openai_call_chat_completions(
                     content = message.get("content")
                     if isinstance(content, str) and content.strip():
                         return content
-                raise RuntimeError("DeepSeek chat response missing choices[0].message.content")
+                raise RuntimeError("Chat response missing choices[0].message.content")
             raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:500]}")
         except Exception:
             if attempt >= max_retries:
@@ -622,17 +624,18 @@ def openai_translate_batch(
         return [parsed[i].strip() for i in range(len(texts))]
 
 
-def deepseek_translate_batch(
+def chat_completions_translate_batch(
     texts: List[str],
     api_key: str,
     target_lang: str,
-    model: str = DEEPSEEK_DEFAULT_MODEL,
-    endpoint: str = DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT,
+    model: str,
+    endpoint: str,
     max_retries: int = DEEPSEEK_DEFAULT_MAX_RETRIES,
     base_delay: float = 1.0,
     strict_json_fallback: bool = True,
     request_timeout: float = 90.0,
-    no_thinking: bool = True,
+    extra_body: dict | None = None,
+    provider_label: str = "chat-completions",
 ) -> List[str]:
     def call(system_text: str, user_text: str) -> str:
         payload = {
@@ -643,8 +646,8 @@ def deepseek_translate_batch(
             ],
             "temperature": 0,
         }
-        if no_thinking:
-            payload["thinking"] = {"type": "disabled"}
+        if extra_body:
+            payload.update(extra_body)
         return _openai_call_chat_completions(
             payload=payload,
             api_key=api_key,
@@ -661,13 +664,40 @@ def deepseek_translate_batch(
     except Exception:
         if not strict_json_fallback:
             raise
-        print(f"[fallback] deepseek batch size={len(texts)} -> indexed-json retry", file=sys.stderr)
+        print(f"[fallback] {provider_label} batch size={len(texts)} -> indexed-json retry", file=sys.stderr)
         system_text, user_text = _build_indexed_json_prompt(texts, target_lang)
         raw = call(system_text, user_text)
         parsed = _parse_indexed_json_text(raw, expected_len=len(texts))
         if len(parsed) != len(texts):
             raise RuntimeError(f"AI output length mismatch: expected {len(texts)}, got {len(parsed)}")
         return [parsed[i].strip() for i in range(len(texts))]
+
+
+def deepseek_translate_batch(
+    texts: List[str],
+    api_key: str,
+    target_lang: str,
+    model: str = DEEPSEEK_DEFAULT_MODEL,
+    endpoint: str = DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT,
+    max_retries: int = DEEPSEEK_DEFAULT_MAX_RETRIES,
+    base_delay: float = 1.0,
+    strict_json_fallback: bool = True,
+    request_timeout: float = 90.0,
+    no_thinking: bool = True,
+) -> List[str]:
+    return chat_completions_translate_batch(
+        texts=texts,
+        api_key=api_key,
+        target_lang=target_lang,
+        model=model,
+        endpoint=endpoint,
+        max_retries=max_retries,
+        base_delay=base_delay,
+        strict_json_fallback=strict_json_fallback,
+        request_timeout=request_timeout,
+        extra_body={"thinking": {"type": "disabled"}} if no_thinking else {"thinking": {"type": "enabled"}},
+        provider_label="deepseek",
+    )
 
 
 def gemini_translate_batch(
@@ -1118,14 +1148,14 @@ def main():
     ap.add_argument(
         "--endpoint",
         default="https://api-free.deepl.com/v2/translate",
-        help="Provider endpoint (DeepL Free/Pro or OpenAI-compatible Responses endpoint)",
+        help="Provider endpoint (DeepL Free/Pro, OpenAI Responses, or Chat Completions endpoint)",
     )
-    ap.add_argument("--model", default="", help="Model name for openai/deepseek")
+    ap.add_argument("--model", default="", help="Model name for openai/deepseek/gemini")
     ap.add_argument("--target", default="ZH", help="Target language code (e.g. ZH / ZH-HK / YUE / EN / JA)")
     ap.add_argument("--bilingual", action="store_true", help="Keep original + translated line")
     ap.add_argument("--every", type=int, default=10, help="Print progress every N lines")
     ap.add_argument("--chunk", type=int, default=None, help="Number of lines per API request")
-    ap.add_argument("--concurrency", type=int, default=None, help="Concurrent batches for openai/deepseek/deepl")
+    ap.add_argument("--concurrency", type=int, default=None, help="Concurrent batches for AI/API providers")
     ap.add_argument("--max-chars", type=int, default=None, help="Max characters per AI request; 0 disables char batching")
     ap.add_argument("--max-paragraphs", type=int, default=None, help="Max text lines per AI request; 0 disables paragraph batching")
     ap.add_argument("--rps", type=float, default=0, help="Max request submissions per second; 0 disables rate limiting")

@@ -1,15 +1,64 @@
 globalThis.Echo360DirectTranslator = (() => {
   const AI_LINE_SEPARATOR = "\n<<<VTT_TRANSLATOR_LINE_BREAK_8F3B>>>\n";
   const CJK_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/;
-  const PROVIDER_DEFAULTS = {
-    openai: { model: "gpt-5-nano", endpoint: "https://api.openai.com/v1/responses" },
-    deepseek: { model: "deepseek-v4-flash", endpoint: "https://api.deepseek.com/chat/completions" },
-    gemini: { model: "gemini-2.5-flash-lite", endpoint: "https://generativelanguage.googleapis.com/v1beta" },
-    deepl: { model: "", endpoint: "https://api-free.deepl.com/v2/translate" },
-    "google-web": { model: "", endpoint: "https://translate.googleapis.com/translate_a/single" },
-  };
-  const PROVIDER_CONCURRENCY_CAPS = {
-    "google-web": 96,
+  const PROVIDER_ADAPTERS = {
+    openai: {
+      id: "openai",
+      protocol: "openai-responses",
+      defaultModel: "gpt-5-nano",
+      defaultEndpoint: "https://api.openai.com/v1/responses",
+      supportsRecursiveFallback: true,
+      authHeaders(apiKey) {
+        return { "Authorization": `Bearer ${apiKey}` };
+      },
+    },
+    deepseek: {
+      id: "deepseek",
+      protocol: "chat-completions",
+      defaultModel: "deepseek-v4-flash",
+      defaultEndpoint: "https://api.deepseek.com/chat/completions",
+      supportsRecursiveFallback: true,
+      authHeaders(apiKey) {
+        return { "Authorization": `Bearer ${apiKey}` };
+      },
+      buildExtraBody(cfg) {
+        const mode = String(cfg.deepseek_thinking_mode || cfg.deepseekThinkingMode || "disabled").toLowerCase();
+        if (mode === "disabled") return { thinking: { type: "disabled" } };
+        if (mode === "enabled" || mode === "with-thinking") return { thinking: { type: "enabled" } };
+        return {};
+      },
+    },
+    gemini: {
+      id: "gemini",
+      protocol: "gemini-generate-content",
+      defaultModel: "gemini-2.5-flash-lite",
+      defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta",
+      supportsRecursiveFallback: true,
+      authHeaders(apiKey) {
+        return { "x-goog-api-key": apiKey };
+      },
+    },
+    deepl: {
+      id: "deepl",
+      protocol: "deepl-translate",
+      defaultModel: "",
+      defaultEndpoint: "https://api-free.deepl.com/v2/translate",
+      authHeaders(apiKey) {
+        return { "Authorization": `DeepL-Auth-Key ${apiKey}` };
+      },
+    },
+    "google-web": {
+      id: "google-web",
+      protocol: "google-web",
+      defaultModel: "",
+      defaultEndpoint: "https://translate.googleapis.com/translate_a/single",
+      keyless: true,
+      supportsRecursiveFallback: true,
+      concurrencyCap: 96,
+      authHeaders() {
+        return {};
+      },
+    },
   };
   const OPENAI_REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh"]);
 
@@ -44,16 +93,24 @@ globalThis.Echo360DirectTranslator = (() => {
   }
 
   function normalizeProvider(provider) {
-    const name = String(provider || "deepseek").trim().toLowerCase();
-    return PROVIDER_DEFAULTS[name] ? name : "deepseek";
+    const name = String(provider || "google-web").trim().toLowerCase();
+    if (!PROVIDER_ADAPTERS[name]) throw new Error(`Unsupported provider: ${name}`);
+    return name;
+  }
+
+  function getProviderAdapter(provider) {
+    return PROVIDER_ADAPTERS[normalizeProvider(provider)];
   }
 
   function providerDefault(provider, key) {
-    return PROVIDER_DEFAULTS[normalizeProvider(provider)][key];
+    const adapter = getProviderAdapter(provider);
+    if (key === "model") return adapter.defaultModel;
+    if (key === "endpoint") return adapter.defaultEndpoint;
+    return "";
   }
 
   function providerConcurrencyCap(provider) {
-    return PROVIDER_CONCURRENCY_CAPS[normalizeProvider(provider)] || 96;
+    return getProviderAdapter(provider).concurrencyCap || 96;
   }
 
   function resolveModel(cfg) {
@@ -169,22 +226,25 @@ globalThis.Echo360DirectTranslator = (() => {
     return Array.from({ length: expectedLen }, (_, i) => out.get(i) || "");
   }
 
-  function normalizeOpenAiEndpoint(endpoint) {
+  function normalizeOpenAiEndpoint(endpoint, adapter) {
     const ep = String(endpoint || "").trim();
-    if (!ep) return "https://api.openai.com/v1/responses";
+    if (!ep) return adapter.defaultEndpoint;
     if (ep.endsWith("/v1/responses")) return ep;
     if (ep.startsWith("https://api.openai.com")) return `${ep.replace(/\/+$/, "")}/v1/responses`;
     return ep;
   }
 
-  function normalizeDeepSeekEndpoint(endpoint) {
+  function normalizeChatCompletionsEndpoint(endpoint, adapter) {
     const ep = String(endpoint || "").trim();
-    if (!ep || ep.startsWith("https://api.deepseek.com")) return "https://api.deepseek.com/chat/completions";
+    if (!ep) return adapter.defaultEndpoint;
+    if (ep.endsWith("/chat/completions")) return ep;
+    if (ep.endsWith("/v1")) return `${ep}/chat/completions`;
+    if (adapter.id === "deepseek" && ep.startsWith("https://api.deepseek.com")) return adapter.defaultEndpoint;
     return ep;
   }
 
-  function normalizeGeminiEndpoint(endpoint, model) {
-    const ep = String(endpoint || "https://generativelanguage.googleapis.com/v1beta").trim().replace(/\/+$/, "");
+  function normalizeGeminiEndpoint(endpoint, model, adapter) {
+    const ep = String(endpoint || adapter.defaultEndpoint).trim().replace(/\/+$/, "");
     if (ep.endsWith(":generateContent")) return ep;
     if (ep.includes("/models/")) return `${ep}:generateContent`;
     return `${ep}/models/${model}:generateContent`;
@@ -295,7 +355,7 @@ globalThis.Echo360DirectTranslator = (() => {
     throw new Error("Google Translate response missing translated text");
   }
 
-  async function callOpenAi(texts, cfg, jsonMode = false) {
+  async function callOpenAi(texts, cfg, adapter, jsonMode = false) {
     const prompt = jsonMode ? buildIndexedJsonPrompt(texts, cfg.target) : buildDelimitedPrompt(texts, cfg.target);
     const model = resolveModel(cfg);
     const body = {
@@ -308,10 +368,10 @@ globalThis.Echo360DirectTranslator = (() => {
         effort: resolveOpenAiReasoningEffort(model, cfg.reasoning_effort || cfg.reasoningEffort),
       },
     };
-    const data = await fetchJson(normalizeOpenAiEndpoint(cfg.endpoint), {
+    const data = await fetchJson(normalizeOpenAiEndpoint(cfg.endpoint, adapter), {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${cfg.api_key}`,
+        ...adapter.authHeaders(cfg.api_key),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -319,7 +379,7 @@ globalThis.Echo360DirectTranslator = (() => {
     return extractOpenAiText(data);
   }
 
-  async function callDeepSeek(texts, cfg, jsonMode = false) {
+  async function callChatCompletions(texts, cfg, adapter, jsonMode = false) {
     const prompt = jsonMode ? buildIndexedJsonPrompt(texts, cfg.target) : buildDelimitedPrompt(texts, cfg.target);
     const body = {
       model: resolveModel(cfg),
@@ -328,14 +388,12 @@ globalThis.Echo360DirectTranslator = (() => {
         { role: "user", content: prompt.user },
       ],
       temperature: 0,
+      ...(adapter.buildExtraBody ? adapter.buildExtraBody(cfg) : {}),
     };
-    if ((cfg.deepseek_thinking_mode || cfg.deepseekThinkingMode) === "disabled") {
-      body.thinking = { type: "disabled" };
-    }
-    const data = await fetchJson(normalizeDeepSeekEndpoint(cfg.endpoint), {
+    const data = await fetchJson(normalizeChatCompletionsEndpoint(cfg.endpoint, adapter), {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${cfg.api_key}`,
+        ...adapter.authHeaders(cfg.api_key),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -343,13 +401,13 @@ globalThis.Echo360DirectTranslator = (() => {
     return extractChatText(data);
   }
 
-  async function callGemini(texts, cfg, jsonMode = false) {
+  async function callGemini(texts, cfg, adapter, jsonMode = false) {
     const prompt = jsonMode ? buildIndexedJsonPrompt(texts, cfg.target) : buildDelimitedPrompt(texts, cfg.target);
     const model = resolveModel(cfg);
-    const data = await fetchJson(normalizeGeminiEndpoint(cfg.endpoint, model), {
+    const data = await fetchJson(normalizeGeminiEndpoint(cfg.endpoint, model, adapter), {
       method: "POST",
       headers: {
-        "x-goog-api-key": cfg.api_key,
+        ...adapter.authHeaders(cfg.api_key),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -361,8 +419,8 @@ globalThis.Echo360DirectTranslator = (() => {
     return extractGeminiText(data);
   }
 
-  async function callDeepL(texts, cfg) {
-    const endpoint = cfg.endpoint || providerDefault("deepl", "endpoint");
+  async function callDeepL(texts, cfg, adapter) {
+    const endpoint = cfg.endpoint || adapter.defaultEndpoint;
     const body = new URLSearchParams();
     for (const text of texts) body.append("text", text);
     body.set("target_lang", String(cfg.target || "ZH").toUpperCase() === "ZH-HK" ? "ZH-HANT" : (cfg.target || "ZH"));
@@ -373,7 +431,7 @@ globalThis.Echo360DirectTranslator = (() => {
     const data = await fetchJson(endpoint, {
       method: "POST",
       headers: {
-        "Authorization": `DeepL-Auth-Key ${cfg.api_key}`,
+        ...adapter.authHeaders(cfg.api_key),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body,
@@ -381,8 +439,8 @@ globalThis.Echo360DirectTranslator = (() => {
     return (data.translations || []).map((item) => item.text || "");
   }
 
-  async function callGoogleWeb(texts, cfg) {
-    const endpoint = normalizeGoogleWebEndpoint(cfg.endpoint);
+  async function callGoogleWeb(texts, cfg, adapter) {
+    const endpoint = normalizeGoogleWebEndpoint(cfg.endpoint || adapter.defaultEndpoint);
     const target = resolveWebTargetLang(cfg.target);
     const out = [];
     for (const text of texts) {
@@ -397,22 +455,28 @@ globalThis.Echo360DirectTranslator = (() => {
   }
 
   async function translateBatch(texts, cfg, options = {}) {
-    const provider = normalizeProvider(cfg.provider);
-    if (provider === "deepl") return callDeepL(texts, cfg);
-    if (provider === "google-web") return callGoogleWeb(texts, cfg);
-    const call = provider === "openai" ? callOpenAi : provider === "gemini" ? callGemini : callDeepSeek;
-    const raw = await call(texts, cfg, false);
+    const adapter = getProviderAdapter(cfg.provider);
+    if (adapter.protocol === "deepl-translate") return callDeepL(texts, cfg, adapter);
+    if (adapter.protocol === "google-web") return callGoogleWeb(texts, cfg, adapter);
+    const protocolCalls = {
+      "openai-responses": callOpenAi,
+      "chat-completions": callChatCompletions,
+      "gemini-generate-content": callGemini,
+    };
+    const call = protocolCalls[adapter.protocol];
+    if (!call) throw new Error(`Unsupported provider protocol: ${adapter.protocol}`);
+    const raw = await call(texts, cfg, adapter, false);
     try {
       return parseDelimitedOutput(raw, texts.length);
     } catch (_) {
       if (options.jsonFallback === false) throw _;
-      const jsonRaw = await call(texts, cfg, true);
+      const jsonRaw = await call(texts, cfg, adapter, true);
       return parseIndexedJsonOutput(jsonRaw, texts.length);
     }
   }
 
   function supportsRecursiveFallback(provider) {
-    return ["openai", "deepseek", "gemini", "google-web"].includes(normalizeProvider(provider));
+    return !!getProviderAdapter(provider).supportsRecursiveFallback;
   }
 
   function isNonRecoverableError(message) {
@@ -610,5 +674,5 @@ globalThis.Echo360DirectTranslator = (() => {
     return { translated_vtt: translatedVtt, warnings, cache_hit: false };
   }
 
-  return { translateVtt };
+  return { translateVtt, getProviderAdapter };
 })();

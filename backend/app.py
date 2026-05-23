@@ -399,13 +399,17 @@ def _run_job(job_id: str, req: TranslateAsyncRequest) -> None:
             }
             job["updated_at"] = int(time.time())
     except Exception as exc:
+        status_code = getattr(exc, "status_code", None)
         error_text = getattr(exc, "detail", None) or str(exc) or exc.__class__.__name__
+        error_code = f"HTTP_{status_code}" if status_code else exc.__class__.__name__.upper()
         with _jobs_lock:
             job = _jobs.get(job_id)
             if not job:
                 return
             job["status"] = "failed"
             job["error"] = error_text
+            job["error_code"] = error_code
+            job["status_code"] = status_code
             job["updated_at"] = int(time.time())
 
 
@@ -420,6 +424,8 @@ def translate_async(req: TranslateAsyncRequest) -> dict:
             "progress": {"current": 0, "total": 0, "line": ""},
             "result": None,
             "error": "",
+            "error_code": "",
+            "status_code": None,
             "created_at": int(time.time()),
             "updated_at": int(time.time()),
         }

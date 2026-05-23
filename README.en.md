@@ -2,21 +2,21 @@
 
 [简体中文](README.md) | **English**
 
-Chrome extension + local FastAPI backend for loading translated subtitles on Echo360 recordings.
+Chrome/Safari extension for loading translated subtitles on Echo360 recordings; the local FastAPI backend is kept as a development, fallback, and batch-processing path.
 
 ## What It Does
 
 1. Finds the Echo360 VTT subtitle source for the current lecture.
-2. Translates through the extension frontend or the optional local backend, depending on configuration.
-3. If the local backend is enabled, the backend calls the bundled VTT translator script:
+2. Translates directly from the extension frontend by default; dev builds can also proxy through the local backend.
+3. If the local backend is enabled, the backend calls the bundled VTT translator script as a fallback/batch tool:
    `translator/translate_vtt_zh_deepl_native.py`
 4. The extension mounts the translated VTT back onto the active Echo360 video.
 
 ## Directory Layout
 
 ```text
-backend/     FastAPI service and local translation cache
-extension/   Chrome extension files
+backend/     FastAPI dev/fallback service and local translation cache
+extension/   Chrome/Safari extension files
 ```
 
 Extension content-script modules:
