@@ -6,7 +6,7 @@
   } = ns.constants;
 
   const SPLIT_CUE_GAP_MAP = {
-    small: 3.8,
+    small: 4.4,
     medium: 4.8,
     large: 5.5,
   };
