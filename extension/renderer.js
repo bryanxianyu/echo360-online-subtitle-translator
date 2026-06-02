@@ -1,7 +1,9 @@
 (() => {
   const ns = window.Echo360Translator;
   const {
+    DEFAULT_SUBTITLE_LINE_HEIGHT,
     DEFAULT_SUBTITLE_SIZE,
+    SAFARI_LINE_HEIGHT_MAP,
     SAFARI_SIZE_MAP,
     SIZE_MAP,
   } = ns.constants;
@@ -38,12 +40,18 @@
     });
   }
 
+  function resolveSubtitleLineHeight() {
+    if (!isSafari()) return DEFAULT_SUBTITLE_LINE_HEIGHT;
+    const mode = isFullscreen() ? "fullscreen" : "normal";
+    return SAFARI_LINE_HEIGHT_MAP[mode] || DEFAULT_SUBTITLE_LINE_HEIGHT;
+  }
+
   function applySubtitleSize(size) {
     const normalizedSize = SIZE_MAP[size] ? size : DEFAULT_SUBTITLE_SIZE;
     const pct = isSafari()
       ? (SAFARI_SIZE_MAP[normalizedSize] || SAFARI_SIZE_MAP[DEFAULT_SUBTITLE_SIZE])
       : (SIZE_MAP[normalizedSize] || SIZE_MAP[DEFAULT_SUBTITLE_SIZE]);
-    const lineHeight = isSafari() && isFullscreen() ? "1.08" : "1.3";
+    const lineHeight = resolveSubtitleLineHeight();
     ensureFullscreenListener();
     if (!styleEl) {
       styleEl = document.createElement("style");
