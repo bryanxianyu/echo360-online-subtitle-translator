@@ -2,6 +2,15 @@
   "scripts": {
     "build": "node scripts/build-extension.mjs all",
     "build:store": "node scripts/build-extension.mjs store",
-    "build:dev": "node scripts/build-extension.mjs dev"
+    "build:dev": "node scripts/build-extension.mjs dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "^3.2.6",
+    "istanbul-lib-instrument": "^6.0.3",
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
   }
 }
