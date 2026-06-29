@@ -57,14 +57,20 @@ describe("settings popover render mode controls", () => {
     changeCheckbox("echo360-pref-echo360-native-cc", true);
     expect(bilingual.disabled).toBe(true);
     expect(reverseOrder.disabled).toBe(true);
-    expect(bilingual.checked).toBe(true);
-    expect(reverseOrder.checked).toBe(false);
+    expect(bilingual.checked).toBe(false);
+    expect(reverseOrder.checked).toBe(true);
+    expect(bilingual.style.opacity).toBe("0.45");
+    expect(reverseOrder.style.cursor).toBe("not-allowed");
+    expect(document.getElementById("echo360-pref-size").style.filter).toBe("grayscale(1)");
 
     changeCheckbox("echo360-pref-echo360-native-cc", false);
     expect(bilingual.disabled).toBe(false);
     expect(reverseOrder.disabled).toBe(false);
     expect(bilingual.checked).toBe(false);
     expect(reverseOrder.checked).toBe(true);
+    expect(bilingual.style.opacity).toBe("");
+    expect(reverseOrder.style.cursor).toBe("");
+    expect(document.getElementById("echo360-pref-size").style.filter).toBe("");
   });
 
   it("readPanelPrefs saves beta effective values separately from browser subtitle prefs", async () => {
@@ -87,5 +93,28 @@ describe("settings popover render mode controls", () => {
     expect(prefs.reverseOrder).toBe(false);
     expect(prefs.browserBilingual).toBe(false);
     expect(prefs.browserReverseOrder).toBe(true);
+  });
+
+  it("shows saved browser subtitle checkbox states when Echo360 native CC beta is already enabled", async () => {
+    setupUi({
+      enabled: true,
+      bilingual: true,
+      reverseOrder: false,
+      browserBilingual: false,
+      browserReverseOrder: false,
+      useNativeSubtitles: false,
+      size: "large",
+    });
+    await openSettings();
+
+    const beta = document.getElementById("echo360-pref-echo360-native-cc");
+    const bilingual = document.getElementById("echo360-pref-bilingual");
+    const reverseOrder = document.getElementById("echo360-pref-reverse");
+
+    expect(beta.checked).toBe(true);
+    expect(bilingual.disabled).toBe(true);
+    expect(reverseOrder.disabled).toBe(true);
+    expect(bilingual.checked).toBe(false);
+    expect(reverseOrder.checked).toBe(false);
   });
 });

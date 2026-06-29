@@ -26,6 +26,13 @@
     btn.style.fontSize = "14px";
   }
 
+  function styleDisabledControl(control, disabled) {
+    if (!control) return;
+    control.style.opacity = disabled ? "0.45" : "";
+    control.style.cursor = disabled ? "not-allowed" : "";
+    control.style.filter = disabled ? "grayscale(1)" : "";
+  }
+
   function syncRenderModeControls() {
     const echo360NativeCc = document.getElementById("echo360-pref-echo360-native-cc");
     const bilingual = document.getElementById("echo360-pref-bilingual");
@@ -37,13 +44,11 @@
     bilingual.disabled = disabled;
     reverseOrder.disabled = disabled;
     subtitleSize.disabled = disabled;
-    if (disabled) {
-      bilingual.checked = true;
-      reverseOrder.checked = false;
-    } else {
-      bilingual.checked = !!browserModePrefs.bilingual;
-      reverseOrder.checked = !!browserModePrefs.reverseOrder;
-    }
+    styleDisabledControl(bilingual, disabled);
+    styleDisabledControl(reverseOrder, disabled);
+    styleDisabledControl(subtitleSize, disabled);
+    bilingual.checked = !!browserModePrefs.bilingual;
+    reverseOrder.checked = !!browserModePrefs.reverseOrder;
 
     for (const id of [
       "echo360-pref-bilingual-label",
@@ -51,7 +56,10 @@
       "echo360-pref-size-label",
     ]) {
       const label = document.getElementById(id);
-      if (label) label.style.opacity = disabled ? "0.5" : "1";
+      if (label) {
+        label.style.opacity = disabled ? "0.5" : "1";
+        label.style.cursor = disabled ? "not-allowed" : "";
+      }
     }
   }
 
@@ -182,8 +190,8 @@
       reverseOrder: prefs.browserReverseOrder ?? (prefs.useNativeSubtitles !== false ? !!prefs.reverseOrder : false),
     };
     document.getElementById("echo360-pref-enabled").checked = !!prefs.enabled;
-    document.getElementById("echo360-pref-bilingual").checked = !!prefs.bilingual;
-    document.getElementById("echo360-pref-reverse").checked = !!prefs.reverseOrder;
+    document.getElementById("echo360-pref-bilingual").checked = !!browserModePrefs.bilingual;
+    document.getElementById("echo360-pref-reverse").checked = !!browserModePrefs.reverseOrder;
     document.getElementById("echo360-pref-echo360-native-cc").checked = prefs.useNativeSubtitles === false;
     syncRenderModeControls();
     document.getElementById("echo360-pref-size").value = prefs.size || DEFAULT_SUBTITLE_SIZE;
