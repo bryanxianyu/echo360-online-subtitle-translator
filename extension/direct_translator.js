@@ -31,7 +31,7 @@ globalThis.Echo360DirectTranslator = (() => {
     gemini: {
       id: "gemini",
       protocol: "gemini-generate-content",
-      defaultModel: "gemini-2.5-flash-lite",
+      defaultModel: "gemini-3.1-flash-lite",
       defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta",
       supportsRecursiveFallback: true,
       authHeaders(apiKey) {

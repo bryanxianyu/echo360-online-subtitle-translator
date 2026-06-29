@@ -22,6 +22,32 @@
     btn.style.fontSize = "14px";
   }
 
+  function syncRenderModeControls() {
+    const echo360NativeCc = document.getElementById("echo360-pref-echo360-native-cc");
+    const bilingual = document.getElementById("echo360-pref-bilingual");
+    const reverseOrder = document.getElementById("echo360-pref-reverse");
+    const subtitleSize = document.getElementById("echo360-pref-size");
+    if (!echo360NativeCc || !bilingual || !reverseOrder || !subtitleSize) return;
+
+    const disabled = echo360NativeCc.checked;
+    bilingual.disabled = disabled;
+    reverseOrder.disabled = disabled;
+    subtitleSize.disabled = disabled;
+    if (disabled) {
+      bilingual.checked = true;
+      reverseOrder.checked = false;
+    }
+
+    for (const id of [
+      "echo360-pref-bilingual-label",
+      "echo360-pref-reverse-label",
+      "echo360-pref-size-label",
+    ]) {
+      const label = document.getElementById(id);
+      if (label) label.style.opacity = disabled ? "0.5" : "1";
+    }
+  }
+
   function ensurePanel(nextHandlers) {
     handlers = { ...handlers, ...(nextHandlers || {}) };
     if (!location.hostname.includes("echo360.")) return;
@@ -91,15 +117,19 @@
         <span>显示翻译字幕</span>
         <input id="echo360-pref-enabled" type="checkbox" />
       </label>
-      <label style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;">
+      <label id="echo360-pref-bilingual-label" style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;">
         <span>双语字幕</span>
         <input id="echo360-pref-bilingual" type="checkbox" />
       </label>
-      <label style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;">
+      <label id="echo360-pref-reverse-label" style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;">
         <span>反转字幕位置</span>
         <input id="echo360-pref-reverse" type="checkbox" />
       </label>
-      <label style="display:block;margin:8px 0;">字幕大小
+      <label style="display:flex;justify-content:space-between;align-items:center;margin:8px 0;" title="实验功能：把译文注入 Echo360 自带 CC 字幕。默认关闭，使用浏览器系统原生字幕。">
+        <span>Echo360 原生 CC（Beta）</span>
+        <input id="echo360-pref-echo360-native-cc" type="checkbox" />
+      </label>
+      <label id="echo360-pref-size-label" style="display:block;margin:8px 0;">字幕大小
         <select id="echo360-pref-size" style="width:100%;margin-top:4px;">
           <option value="small">小</option>
           <option value="medium">中</option>
@@ -118,6 +148,10 @@
     document.getElementById("echo360-pref-enabled").addEventListener("change", () => handlers.onPrefsChanged?.());
     document.getElementById("echo360-pref-bilingual").addEventListener("change", () => handlers.onPrefsChanged?.());
     document.getElementById("echo360-pref-reverse").addEventListener("change", () => handlers.onPrefsChanged?.());
+    document.getElementById("echo360-pref-echo360-native-cc").addEventListener("change", () => {
+      syncRenderModeControls();
+      handlers.onPrefsChanged?.();
+    });
     document.getElementById("echo360-pref-size").addEventListener("change", () => handlers.onPrefsChanged?.());
     document.getElementById("echo360-pref-target").addEventListener("change", (event) => handlers.onTargetChanged?.(event));
   }
@@ -132,6 +166,8 @@
     document.getElementById("echo360-pref-enabled").checked = !!prefs.enabled;
     document.getElementById("echo360-pref-bilingual").checked = !!prefs.bilingual;
     document.getElementById("echo360-pref-reverse").checked = !!prefs.reverseOrder;
+    document.getElementById("echo360-pref-echo360-native-cc").checked = prefs.useNativeSubtitles === false;
+    syncRenderModeControls();
     document.getElementById("echo360-pref-size").value = prefs.size || DEFAULT_SUBTITLE_SIZE;
     document.getElementById("echo360-pref-target").value = (cfg.target || "ZH").toUpperCase();
   }
@@ -141,6 +177,7 @@
       enabled: document.getElementById("echo360-pref-enabled").checked,
       bilingual: document.getElementById("echo360-pref-bilingual").checked,
       reverseOrder: document.getElementById("echo360-pref-reverse").checked,
+      useNativeSubtitles: !document.getElementById("echo360-pref-echo360-native-cc").checked,
       size: document.getElementById("echo360-pref-size").value || DEFAULT_SUBTITLE_SIZE,
     };
   }

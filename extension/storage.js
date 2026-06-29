@@ -9,6 +9,7 @@
   } = ns.constants;
   const extensionApi = ns.browserApi;
   const KEYLESS_PROVIDERS = new Set(["google-web"]);
+  const PREFS_SCHEMA_VERSION = 2;
 
   function isLocalBackendEnabled() {
     return ns.buildConfig?.enableLocalBackend !== false;
@@ -22,7 +23,22 @@
   async function getPrefs() {
     const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
     const obj = await extensionApi.storage.local.get(key);
-    const prefs = obj[key] || { enabled: true, size: DEFAULT_SUBTITLE_SIZE, bilingual: false, reverseOrder: false };
+    const prefs = obj[key] || {
+      enabled: true,
+      size: DEFAULT_SUBTITLE_SIZE,
+      bilingual: false,
+      reverseOrder: false,
+      useNativeSubtitles: true,
+      renderModeVersion: PREFS_SCHEMA_VERSION,
+    };
+    if (prefs.renderModeVersion !== PREFS_SCHEMA_VERSION) {
+      prefs.useNativeSubtitles = true;
+      prefs.renderModeVersion = PREFS_SCHEMA_VERSION;
+    } else {
+      prefs.useNativeSubtitles = prefs.useNativeSubtitles !== false;
+    }
+    prefs.bilingual = prefs.useNativeSubtitles ? prefs.bilingual === true : true;
+    prefs.reverseOrder = prefs.useNativeSubtitles ? prefs.reverseOrder === true : false;
     if (prefs.size === "tiny") prefs.size = "medium";
     else if (!SIZE_MAP[prefs.size]) prefs.size = DEFAULT_SUBTITLE_SIZE;
     return prefs;
@@ -30,7 +46,15 @@
 
   async function savePrefs(prefs) {
     const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
-    await extensionApi.storage.local.set({ [key]: prefs });
+    const useNativeSubtitles = prefs.useNativeSubtitles !== false;
+    const normalizedPrefs = {
+      ...prefs,
+      renderModeVersion: PREFS_SCHEMA_VERSION,
+      useNativeSubtitles,
+      bilingual: useNativeSubtitles ? prefs.bilingual === true : true,
+      reverseOrder: useNativeSubtitles ? prefs.reverseOrder === true : false,
+    };
+    await extensionApi.storage.local.set({ [key]: normalizedPrefs });
   }
 
   async function sha256Text(text) {
