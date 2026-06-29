@@ -27,6 +27,7 @@
       (
         oldPrefs.bilingual !== prefs.bilingual ||
         oldPrefs.reverseOrder !== prefs.reverseOrder ||
+        oldPrefs.useNativeSubtitles !== prefs.useNativeSubtitles ||
         oldPrefs.size !== prefs.size
       )
     ) {
@@ -36,7 +37,8 @@
         prefs.bilingual,
         prefs.size,
         prefs.reverseOrder,
-        renderState.lastRenderSourceMeta
+        renderState.lastRenderSourceMeta,
+        prefs.useNativeSubtitles
       );
     }
     ns.renderer.applySubtitleVisibility(prefs.enabled);
@@ -111,7 +113,8 @@
           prefs.bilingual,
           prefs.size,
           prefs.reverseOrder,
-          sourceMeta
+          sourceMeta,
+          prefs.useNativeSubtitles
         );
         loadedCacheKey = cacheEntry.cacheKey || "";
         if (mounted) {
@@ -153,7 +156,8 @@
         prefs.bilingual,
         prefs.size,
         prefs.reverseOrder,
-        sourceMeta
+        sourceMeta,
+        prefs.useNativeSubtitles
       );
       loadedCacheKey = cacheKey;
       await ns.storage.setCacheStore({

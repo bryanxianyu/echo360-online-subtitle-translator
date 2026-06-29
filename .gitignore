@@ -9,3 +9,9 @@ backend/.cache/
 logs/
 dist/
 scripts/bench-google-web.mjs
+
+# JS test tooling
+node_modules/
+coverage/
+reports/
+.stryker-tmp/

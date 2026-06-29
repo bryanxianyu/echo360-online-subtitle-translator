@@ -27,7 +27,7 @@ const defaultConfig = {
 const modelPresets = [
   { provider: "google-web", model: "", endpoint: "", label: "Google Translate" },
   { provider: "deepseek", model: "deepseek-v4-flash", endpoint: "", label: "DeepSeek - deepseek-v4-flash" },
-  { provider: "gemini", model: "gemini-2.5-flash-lite", endpoint: "", label: "Gemini - gemini-2.5-flash-lite" },
+  { provider: "gemini", model: "gemini-3.1-flash-lite", endpoint: "", label: "Gemini - gemini-3.1-flash-lite" },
   { provider: "openai", model: "gpt-5-nano", endpoint: "", label: "OpenAI - gpt-5-nano" },
   { provider: "deepl", model: "", endpoint: "", label: "DeepL" },
 ];

@@ -29,7 +29,7 @@ const providerDefaults = {
   "google-web": { model: "", endpoint: "" },
   openai: { model: "gpt-5-nano", endpoint: "" },
   deepseek: { model: "deepseek-v4-flash", endpoint: "" },
-  gemini: { model: "gemini-2.5-flash-lite", endpoint: "" },
+  gemini: { model: "gemini-3.1-flash-lite", endpoint: "" },
   deepl: { model: "", endpoint: "" }
 };
 const keylessProviders = new Set(["google-web"]);

@@ -87,6 +87,7 @@
         "storage.js",
         "video.js",
         "source_finder.js",
+        "bilingual_dom_renderer.js",
         "renderer.js",
         "ui.js",
         "backend_client.js",
