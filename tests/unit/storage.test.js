@@ -83,7 +83,7 @@ describe("buildConfigSignature", () => {
   it("uppercases target", () => {
     const sig = storage.buildConfigSignature({ ...base(), target: "zh" });
     expect(sig).toContain("ZH");
-    expect(sig).not.toContain("|zh|");
+    expect(sig).not.toContain('"zh"');
   });
 
   // Each field individually changes the signature — kills StringLiteral / LogicalOperator survivors
@@ -177,7 +177,7 @@ describe("getConfig", () => {
 describe("getPrefs normalization", () => {
   const prefsKey = () => `echo360TranslatorPrefs::${window.location.hostname}::${window.location.pathname}`;
 
-  it("forces bilingual=true and reverseOrder=false when useNativeSubtitles=false (schema v2)", async () => {
+  it("forces bilingual=true and reverseOrder=false in Echo360 native CC beta mode (schema v2)", async () => {
     const { storage } = setupStorage({
       storageData: {
         [prefsKey()]: {
@@ -292,12 +292,68 @@ describe("savePrefs", () => {
     expect(saved.reverseOrder).toBe(false);
   });
 
-  it("forces bilingual=true and reverseOrder=false when useNativeSubtitles=false", async () => {
+  it("forces bilingual=true and reverseOrder=false in Echo360 native CC beta mode", async () => {
     const { storage, localMock } = setupStorage();
-    await storage.savePrefs({ useNativeSubtitles: false, bilingual: false, reverseOrder: true });
+    await storage.savePrefs({
+      useNativeSubtitles: false,
+      bilingual: true,
+      reverseOrder: false,
+      browserBilingual: false,
+      browserReverseOrder: true,
+    });
     const saved = localMock._store[prefsKey()];
     expect(saved.bilingual).toBe(true);
     expect(saved.reverseOrder).toBe(false);
+    expect(saved.browserBilingual).toBe(false);
+    expect(saved.browserReverseOrder).toBe(true);
+  });
+
+  it("preserves previous browser subtitle prefs when entering Echo360 native CC beta mode", async () => {
+    const { storage, localMock } = setupStorage();
+    await storage.savePrefs({
+      useNativeSubtitles: true,
+      bilingual: false,
+      reverseOrder: true,
+      size: "medium",
+    });
+
+    await storage.savePrefs({
+      useNativeSubtitles: false,
+      bilingual: true,
+      reverseOrder: false,
+      size: "medium",
+    });
+
+    const saved = localMock._store[prefsKey()];
+    expect(saved.bilingual).toBe(true);
+    expect(saved.reverseOrder).toBe(false);
+    expect(saved.browserBilingual).toBe(false);
+    expect(saved.browserReverseOrder).toBe(true);
+  });
+
+  it("restores browser subtitle prefs after leaving Echo360 native CC beta mode", async () => {
+    const { storage, localMock } = setupStorage();
+    await storage.savePrefs({
+      useNativeSubtitles: false,
+      bilingual: true,
+      reverseOrder: false,
+      browserBilingual: false,
+      browserReverseOrder: true,
+      size: "medium",
+    });
+
+    await storage.savePrefs({
+      useNativeSubtitles: true,
+      bilingual: false,
+      reverseOrder: true,
+      size: "medium",
+    });
+
+    const saved = localMock._store[prefsKey()];
+    expect(saved.bilingual).toBe(false);
+    expect(saved.reverseOrder).toBe(true);
+    expect(saved.browserBilingual).toBe(false);
+    expect(saved.browserReverseOrder).toBe(true);
   });
 
   it("treats missing useNativeSubtitles as true (not false)", async () => {

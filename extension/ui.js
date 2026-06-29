@@ -11,6 +11,10 @@
     onPrefsChanged: null,
     onTargetChanged: null,
   };
+  let browserModePrefs = {
+    bilingual: false,
+    reverseOrder: false,
+  };
 
   function styleButton(btn, bg) {
     btn.style.padding = "10px 14px";
@@ -36,6 +40,9 @@
     if (disabled) {
       bilingual.checked = true;
       reverseOrder.checked = false;
+    } else {
+      bilingual.checked = !!browserModePrefs.bilingual;
+      reverseOrder.checked = !!browserModePrefs.reverseOrder;
     }
 
     for (const id of [
@@ -149,6 +156,13 @@
     document.getElementById("echo360-pref-bilingual").addEventListener("change", () => handlers.onPrefsChanged?.());
     document.getElementById("echo360-pref-reverse").addEventListener("change", () => handlers.onPrefsChanged?.());
     document.getElementById("echo360-pref-echo360-native-cc").addEventListener("change", () => {
+      const echo360NativeCc = document.getElementById("echo360-pref-echo360-native-cc");
+      if (echo360NativeCc?.checked) {
+        browserModePrefs = {
+          bilingual: document.getElementById("echo360-pref-bilingual").checked,
+          reverseOrder: document.getElementById("echo360-pref-reverse").checked,
+        };
+      }
       syncRenderModeControls();
       handlers.onPrefsChanged?.();
     });
@@ -163,6 +177,10 @@
     if (!show) return;
     const prefs = await ns.storage.getPrefs();
     const cfg = await ns.storage.getConfig();
+    browserModePrefs = {
+      bilingual: prefs.browserBilingual ?? (prefs.useNativeSubtitles !== false ? !!prefs.bilingual : false),
+      reverseOrder: prefs.browserReverseOrder ?? (prefs.useNativeSubtitles !== false ? !!prefs.reverseOrder : false),
+    };
     document.getElementById("echo360-pref-enabled").checked = !!prefs.enabled;
     document.getElementById("echo360-pref-bilingual").checked = !!prefs.bilingual;
     document.getElementById("echo360-pref-reverse").checked = !!prefs.reverseOrder;
@@ -173,11 +191,21 @@
   }
 
   function readPanelPrefs() {
+    const echo360NativeCc = document.getElementById("echo360-pref-echo360-native-cc");
+    const betaEnabled = !!echo360NativeCc.checked;
+    if (!betaEnabled) {
+      browserModePrefs = {
+        bilingual: document.getElementById("echo360-pref-bilingual").checked,
+        reverseOrder: document.getElementById("echo360-pref-reverse").checked,
+      };
+    }
     return {
       enabled: document.getElementById("echo360-pref-enabled").checked,
-      bilingual: document.getElementById("echo360-pref-bilingual").checked,
-      reverseOrder: document.getElementById("echo360-pref-reverse").checked,
-      useNativeSubtitles: !document.getElementById("echo360-pref-echo360-native-cc").checked,
+      bilingual: betaEnabled ? true : browserModePrefs.bilingual,
+      reverseOrder: betaEnabled ? false : browserModePrefs.reverseOrder,
+      browserBilingual: browserModePrefs.bilingual,
+      browserReverseOrder: browserModePrefs.reverseOrder,
+      useNativeSubtitles: !betaEnabled,
       size: document.getElementById("echo360-pref-size").value || DEFAULT_SUBTITLE_SIZE,
     };
   }

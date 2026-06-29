@@ -22,7 +22,7 @@ The default path uses **browser `<track>` subtitle tracks** (`renderer.js`):
 Optional **Echo360 native CC (Beta)** (checkbox in the control panel, `bilingual_dom_renderer.js`):
 
 - Applies only in bilingual mode and tries to inject translated text into Echo360's built-in CC area.
-- Experimental and off by default; falls back to browser subtitle tracks if matching fails or the page layout changes.
+- Experimental and off by default; if Echo360's own CC is off, or matching fails because the page layout changes, Beta mode does not mount an extra browser subtitle track.
 
 Display preferences (bilingual, order, size) do not require retranslation. The extension caches one translated VTT and renders client-side.
 

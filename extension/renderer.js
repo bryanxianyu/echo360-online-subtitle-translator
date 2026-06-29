@@ -218,6 +218,10 @@
 
   function cleanupTranslatedTracks() {
     deactivateTranslatedRenderers();
+    removeTranslatedTrackElements();
+  }
+
+  function removeTranslatedTrackElements() {
     const tracks = ns.video.querySelectorAllDeep('track[data-echo360-translated="1"], track[label*="翻译字幕"]');
     tracks.forEach((track) => track.remove());
     for (const state of nativeTrackStates.values()) {
@@ -303,17 +307,26 @@
     lastRenderSourceMeta = resolvedSourceMeta;
 
     deactivateTranslatedRenderers();
-    if (bilingual && !useNativeSubtitles && ns.bilingualDomRenderer?.mount({
-      video,
-      originalVtt,
-      translatedVtt: normalizedTranslated,
-      size,
-      reverseOrder,
-    })) {
-      lastTranslatedTrack = { mode: "bilingual-dom" };
-      return true;
+    if (bilingual && !useNativeSubtitles) {
+      removeTranslatedTrackElements();
+      if (ns.bilingualDomRenderer?.mount({
+        video,
+        originalVtt,
+        translatedVtt: normalizedTranslated,
+        size,
+        reverseOrder,
+      })) {
+        lastTranslatedTrack = { mode: "bilingual-dom" };
+        return true;
+      }
+      return false;
     }
     const nativeState = getOrCreateNativeTrack(video);
+    const payloadChanged = nativeState.payload !== payload || !nativeState.track.getAttribute("src");
+    if (payloadChanged && nativeState.track.isConnected) {
+      nativeState.track.remove();
+      nativeState.track = document.createElement("track");
+    }
     const track = nativeState.track;
     track.label = bilingual ? "翻译字幕 (双语)" : "翻译字幕";
     track.srclang = "zh";

@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "^3.2.6",
+    "fast-check": "^4.8.0",
     "istanbul-lib-instrument": "^6.0.3",
     "jsdom": "^26.1.0",
     "vitest": "^3.2.4"

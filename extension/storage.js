@@ -28,6 +28,8 @@
       size: DEFAULT_SUBTITLE_SIZE,
       bilingual: false,
       reverseOrder: false,
+      browserBilingual: false,
+      browserReverseOrder: false,
       useNativeSubtitles: true,
       renderModeVersion: PREFS_SCHEMA_VERSION,
     };
@@ -37,8 +39,10 @@
     } else {
       prefs.useNativeSubtitles = prefs.useNativeSubtitles !== false;
     }
-    prefs.bilingual = prefs.useNativeSubtitles ? prefs.bilingual === true : true;
-    prefs.reverseOrder = prefs.useNativeSubtitles ? prefs.reverseOrder === true : false;
+    prefs.browserBilingual = typeof prefs.browserBilingual === "boolean" ? prefs.browserBilingual : prefs.bilingual === true;
+    prefs.browserReverseOrder = typeof prefs.browserReverseOrder === "boolean" ? prefs.browserReverseOrder : prefs.reverseOrder === true;
+    prefs.bilingual = prefs.useNativeSubtitles ? prefs.browserBilingual : true;
+    prefs.reverseOrder = prefs.useNativeSubtitles ? prefs.browserReverseOrder : false;
     if (prefs.size === "tiny") prefs.size = "medium";
     else if (!SIZE_MAP[prefs.size]) prefs.size = DEFAULT_SUBTITLE_SIZE;
     return prefs;
@@ -46,13 +50,27 @@
 
   async function savePrefs(prefs) {
     const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
+    const obj = await extensionApi.storage.local.get(key);
+    const existing = obj[key] && typeof obj[key] === "object" ? obj[key] : {};
     const useNativeSubtitles = prefs.useNativeSubtitles !== false;
+    const browserBilingual = useNativeSubtitles
+      ? prefs.bilingual === true
+      : typeof prefs.browserBilingual === "boolean"
+        ? prefs.browserBilingual
+        : existing.browserBilingual === true;
+    const browserReverseOrder = useNativeSubtitles
+      ? prefs.reverseOrder === true
+      : typeof prefs.browserReverseOrder === "boolean"
+        ? prefs.browserReverseOrder
+        : existing.browserReverseOrder === true;
     const normalizedPrefs = {
       ...prefs,
       renderModeVersion: PREFS_SCHEMA_VERSION,
       useNativeSubtitles,
-      bilingual: useNativeSubtitles ? prefs.bilingual === true : true,
-      reverseOrder: useNativeSubtitles ? prefs.reverseOrder === true : false,
+      browserBilingual,
+      browserReverseOrder,
+      bilingual: useNativeSubtitles ? browserBilingual : true,
+      reverseOrder: useNativeSubtitles ? browserReverseOrder : false,
     };
     await extensionApi.storage.local.set({ [key]: normalizedPrefs });
   }
@@ -77,7 +95,7 @@
   }
 
   function buildConfigSignature(cfg) {
-    return [
+    return JSON.stringify([
       cfg.provider,
       cfg.model,
       cfg.endpoint || "",
@@ -87,7 +105,7 @@
       cfg.reasoningEffort || "",
       cfg.deepseekThinkingMode || "",
       cfg.deeplFormality || "",
-    ].join("|");
+    ]);
   }
 
   async function getConfig() {

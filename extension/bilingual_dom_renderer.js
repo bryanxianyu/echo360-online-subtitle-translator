@@ -81,22 +81,9 @@
     return time >= cue.start && time <= cue.end ? high : -1;
   }
 
-  function applyLayout() {
-    if (!state) return;
-    const rect = state.player.getBoundingClientRect();
-    const ratio = SIZE_RATIO[state.size] || SIZE_RATIO.medium;
-    const fontSize = Math.max(15, Math.min(42, Math.round(rect.height * ratio)));
-    state.box.style.fontSize = `${fontSize}px`;
-    state.root.style.left = `${Math.round(rect.left)}px`;
-    state.root.style.top = `${Math.round(rect.top)}px`;
-    state.root.style.width = `${Math.round(rect.width)}px`;
-    state.root.style.height = `${Math.round(rect.height)}px`;
-    state.root.style.paddingBottom = `${Math.max(48, Math.round(rect.height * 0.09))}px`;
-  }
-
   function isVisibleInPlayer(element) {
     if (!state?.player || !element?.isConnected) return false;
-    if (element.closest("#echo360-bilingual-dom-overlay, #echo360-translator-panel")) return false;
+    if (element.closest("#echo360-translator-panel")) return false;
     const rect = element.getBoundingClientRect();
     const playerRect = state.player.getBoundingClientRect();
     if (rect.width < 20 || rect.height < 10) return false;
@@ -238,8 +225,6 @@
       state.mutationObserver?.disconnect();
       state.mutationObserver?.observe(player, { childList: true, characterData: true, subtree: true });
     }
-    if (!state.root.isConnected) document.body.appendChild(state.root);
-    applyLayout();
     return true;
   }
 
@@ -263,7 +248,6 @@
     const cue = index >= 0 ? state.cues[index] : null;
     if (!state.visible) {
       clearInjectedLines();
-      state.box.style.display = "none";
       publishDebugState();
       return;
     }
@@ -273,23 +257,19 @@
     if (shouldSearchNative && injectIntoNativeCaption(cue)) {
       state.nativeInjectedCueIndex = index;
       state.nativeInjectionHits += 1;
-      state.box.style.display = "none";
       publishDebugState();
       return;
     }
     state.nativeInjectedCueIndex = -1;
     if (!cue && state.nativeAnchor?.isConnected && isVisibleInPlayer(state.nativeAnchor)) {
-      state.box.style.display = "none";
       publishDebugState();
       return;
     }
     if (cue && state.visible && now < state.nativeCaptionWaitUntil) {
-      state.box.style.display = "none";
       publishDebugState();
       return;
     }
     clearInjectedLines();
-    state.box.style.display = "none";
     publishDebugState();
   }
 
@@ -307,19 +287,6 @@
     if (!video || !player || cues.length === 0) return false;
 
     unmount();
-    const root = document.createElement("div");
-    root.id = "echo360-bilingual-dom-overlay";
-    root.setAttribute("aria-live", "off");
-    root.style.cssText = "position:fixed;display:flex;justify-content:center;align-items:flex-end;box-sizing:border-box;pointer-events:none;z-index:2147483000;";
-
-    const box = document.createElement("div");
-    box.style.cssText = "display:none;max-width:88%;padding:0.22em 0.5em;background:rgba(0,0,0,0.78);color:#fff;border-radius:0.18em;text-align:center;line-height:1.3;font-family:Arial,sans-serif;font-weight:500;text-shadow:0 1px 2px rgba(0,0,0,0.55);";
-    const source = document.createElement("div");
-    const translation = document.createElement("div");
-    translation.style.marginTop = "0.12em";
-    box.append(source, translation);
-    root.appendChild(box);
-
     state = {
       video,
       player,
@@ -327,21 +294,15 @@
       size: SIZE_RATIO[size] ? size : "medium",
       reverseOrder: !!reverseOrder,
       visible: true,
-      root,
-      box,
-      source,
-      translation,
       lastCueIndex: -2,
       nativeInjectedCueIndex: -2,
       nativeInjectionHits: 0,
-      fallbackHits: 0,
       nativeCaptionWaitUntil: 0,
       nextNativeSearchAt: 0,
       nativeAnchor: null,
       nativeAnchorDebug: null,
       listeners: [],
       frameHandle: null,
-      resizeObserver: null,
       mutationObserver: null,
       mutationFrameHandle: null,
     };
@@ -351,11 +312,6 @@
       video.addEventListener(eventName, listener);
       state.listeners.push([eventName, listener]);
     }
-    window.addEventListener("resize", applyLayout);
-    document.addEventListener("fullscreenchange", applyLayout);
-    document.addEventListener("webkitfullscreenchange", applyLayout);
-    state.resizeObserver = new ResizeObserver(applyLayout);
-    state.resizeObserver.observe(player);
     state.mutationObserver = new MutationObserver((mutations) => {
       if (!state || state.mutationFrameHandle !== null || !mutationCouldAffectActiveCaption(mutations)) return;
       state.mutationFrameHandle = requestAnimationFrame(() => {
@@ -371,7 +327,7 @@
     renderCurrentCue();
     scheduleVideoFrame();
     publishDebugState();
-    console.info("[echo360-translator] mounted bilingual DOM overlay", { cueCount: cues.length });
+    console.info("[echo360-translator] mounted Echo360 native CC injector", { cueCount: cues.length });
     return true;
   }
 
@@ -383,9 +339,7 @@
       lastCueIndex: state.lastCueIndex,
       nativeInjectedCueIndex: state.nativeInjectedCueIndex,
       injectedLineCount: state.player.querySelectorAll(INJECTED_LINE_SELECTOR).length,
-      fallbackVisible: state.box.style.display !== "none",
       nativeInjectionHits: state.nativeInjectionHits,
-      fallbackHits: state.fallbackHits,
       waitingForNativeCaption: performance.now() < state.nativeCaptionWaitUntil,
       playerAttached: state.player.isConnected,
       nativeAnchor: state.nativeAnchorDebug,
@@ -401,7 +355,6 @@
   function applySize(size) {
     if (!state) return;
     state.size = SIZE_RATIO[size] ? size : "medium";
-    applyLayout();
   }
 
   function ensureMounted() {
@@ -419,13 +372,8 @@
     if (state.frameHandle !== null && typeof state.video.cancelVideoFrameCallback === "function") {
       state.video.cancelVideoFrameCallback(state.frameHandle);
     }
-    state.resizeObserver?.disconnect();
     state.mutationObserver?.disconnect();
     if (state.mutationFrameHandle !== null) cancelAnimationFrame(state.mutationFrameHandle);
-    window.removeEventListener("resize", applyLayout);
-    document.removeEventListener("fullscreenchange", applyLayout);
-    document.removeEventListener("webkitfullscreenchange", applyLayout);
-    state.root.remove();
     clearInjectedLines();
     state = null;
     publishDebugState();

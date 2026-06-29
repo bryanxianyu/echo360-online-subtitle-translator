@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     // Extension-only: tests live under tests/ and load extension/*.js via evalModule().
-    include: ["tests/unit/**/*.test.js"],
+    include: ["tests/unit/**/*.test.js", "tests/property/**/*.test.js"],
     globals: true,
     // Branch coverage for extension IIFE modules is verified by Stryker (npm run test:mutation).
     // v8 cannot attribute coverage to code loaded via `new Function()` without source maps.
