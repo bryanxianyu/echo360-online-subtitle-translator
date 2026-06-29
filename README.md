@@ -7,33 +7,57 @@
 ## 功能概览
 
 1. 在当前 Echo360 录播课页面中寻找 VTT 字幕源。
-2. 默认通过扩展前端直连翻译服务；dev 构建也可以发送到本地后端。
+2. 默认通过扩展前端直连翻译服务（`direct_translator.js`）；dev 构建也可以发送到本地后端。
 3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本作为 fallback/批处理工具：
    `translator/translate_vtt_zh_deepl_native.py`
-4. 扩展将翻译后的 VTT 挂载回当前 Echo360 视频。
+4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上，支持浏览器字幕轨或 Echo360 原生 CC（Beta）两种渲染方式。
+
+## 字幕渲染方式
+
+默认使用 **浏览器 `<track>` 字幕轨**（`renderer.js`）：
+
+- 单语模式直接挂载翻译 VTT。
+- 双语模式由 `subtitle_strategy.js` 按浏览器选择策略：Safari 使用单 cue 双语 VTT，Chrome / Edge 等使用分 cue 双语 VTT。
+
+可选开启 **Echo360 原生 CC（Beta）**（控制面板勾选，`bilingual_dom_renderer.js`）：
+
+- 仅在双语模式下生效，尝试把译文注入 Echo360 播放器自带 CC 区域。
+- 实验功能，默认关闭；若页面结构变化或匹配失败，会回退到浏览器字幕轨。
+
+切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。
 
 ## 目录结构
 
 ```text
-backend/     FastAPI 开发/fallback 服务和本地翻译缓存
-extension/   Chrome/Safari 扩展文件
+backend/      FastAPI 开发/fallback 服务和本地翻译缓存
+extension/    Chrome/Safari 扩展源码
+translator/   VTT 翻译脚本（后端/fallback 调用）
+scripts/      扩展构建脚本
+tests/        Vitest 单元测试（覆盖 extension 核心逻辑）
 ```
 
-扩展 content script 模块：
+扩展主要模块：
 
 ```text
-constants.js            共享默认值和选项列表
-vtt.js                  纯 VTT 解析、格式化、双语字幕渲染工具
-storage.js              Chrome storage、配置、偏好和本地字幕缓存
-video.js                Echo360 视频发现、media-id 线索和页面探针桥接
-source_finder.js        字幕源发现和字幕到视频的匹配
-renderer.js             浏览器字幕 track 生命周期和 cue 样式
-ui.js                   浮动控制面板和状态更新
-backend_client.js       后端代理请求、异步任务轮询和错误消息
-translation_service.js  字幕源解析、payload 构造、缓存键、后端翻译
-controller.js           翻译用例编排
-content.js              极薄 content script 入口
-page_probe.js           MAIN world 的 Echo360/React/XHR 探针，用于 media-id 线索
+build_config.js           构建目标（dev/store）与本地后端开关
+browser_api.js            Chrome / Safari storage 与 runtime API 抽象
+constants.js              共享默认值和选项列表
+vtt.js                    纯 VTT 解析、格式化、双语字幕工具
+subtitle_strategy.js      浏览器检测与双语 VTT 构建策略
+storage.js                配置、偏好和本地字幕缓存
+video.js                  Echo360 视频发现、media-id 线索和页面探针桥接
+source_finder.js          字幕源发现和字幕到视频的匹配
+bilingual_dom_renderer.js Echo360 原生 CC DOM 双语注入（Beta）
+renderer.js               浏览器字幕 track 生命周期和 cue 样式
+direct_translator.js      扩展内直连翻译（store 构建默认路径）
+ui.js                     页面浮动控制面板和状态更新
+backend_client.js         后端代理、直连任务轮询和错误消息
+translation_service.js    payload 构造、缓存键与翻译编排
+controller.js             翻译用例编排
+content.js                content script 入口
+page_probe.js             MAIN world 的 Echo360/React/XHR 探针
+background.js             service worker
+popup.js / options.js     扩展弹窗与选项页
 ```
 
 ## 后端启动
@@ -83,9 +107,15 @@ Invoke-WebRequest http://127.0.0.1:8765/health
 3. 点击 `加载已解压的扩展程序`。
 4. 选择当前仓库下的 `extension/` 目录。
 
-进入 Echo360 classroom 页面后，右下角会出现控制面板。正常使用点击 `加载翻译字幕`；如果需要清除当前缓存并重新翻译，点击 `重新翻译`。
+进入 Echo360 classroom 页面后，右下角会出现浮动控制面板；也可通过扩展图标弹窗（`popup.html`）或选项页（`options.html`）配置 provider 与 API Key。正常使用点击 `加载翻译字幕`；如果需要清除当前缓存并重新翻译，点击 `重新翻译`。
 
 ## 发布构建
+
+先在仓库根目录安装 Node 依赖：
+
+```bash
+npm install
+```
 
 源码默认保留本地后端开关，方便开发测试。上传 Chrome Web Store 时请使用 store 构建：
 
@@ -107,10 +137,22 @@ npm run build:dev
 
 dev 构建保留本地后端入口和 localhost 权限。
 
+## 测试
+
+单元测试覆盖 `extension/` 中的 VTT 解析、字幕策略、存储、翻译 payload 与错误处理逻辑：
+
+```bash
+npm install
+npm test
+npm run test:coverage
+```
+
+测试文件位于 `tests/unit/`；配置见 `vitest.config.js`。
+
 ## 默认参数
 
 - provider: `google-web`
-- model: 默认空
+- model: 默认空（Gemini 预设为 `gemini-3.1-flash-lite`）
 - target: `ZH`
 - max_paragraphs: `6`
 - max_chars: `1200`
@@ -121,15 +163,19 @@ dev 构建保留本地后端入口和 localhost 权限。
 - reasoning_effort: 默认空
 - deepseek_thinking_mode: `disabled`
 
+支持的 provider：`google-web`、`deepseek`、`openai`、`gemini`、`deepl`。除 `google-web` 外均需填写 API Key。
+
+目标语言选项：`ZH`、`ZH-HK`、`YUE`、`EN`、`JA`、`KO`、`FR`、`DE`、`ES`、`IT`、`PT`、`RU`、`AR`、`HI`。
+
 Chrome 商店版的高级翻译参数只显示与当前 provider 相关的设置：
 - OpenAI: `Reasoning Effort`
 - DeepSeek: `DeepSeek Thinking`（默认关闭，减少延迟）
+- Gemini: 默认模型 `gemini-3.1-flash-lite`
 - DeepL: `DeepL Formality`
 
 dev 构建会额外保留本地后端调试参数，例如 `maxParagraphs`、`maxChars`、`concurrency`、`rps`、`retries`、`timeout`、`fallbackMode`、`repairConcurrency` 和 `slowSplitThreshold`。
 
 语言补充：
-- 扩展目标语言支持 `ZH-HK` 与 `YUE`
 - 当 provider 为 `deepl` 时，不支持 `YUE`（请使用 AI provider，如 `deepseek`/`openai`/`gemini`）
 
 Google Translate provider：
@@ -182,7 +228,7 @@ export TRANSLATOR_PYTHON_BIN=/absolute/path/to/python
 
 并发数、RPS、重试次数、timeout 这类只影响性能的参数不参与内容缓存键。
 
-扩展端只保留一个本地翻译字幕缓存。双语字幕在前端渲染，因此切换双语显示不需要重新翻译。
+扩展端只保留一个本地翻译字幕缓存。双语显示在前端渲染，因此切换双语显示不需要重新翻译。
 
 ## 说明
 

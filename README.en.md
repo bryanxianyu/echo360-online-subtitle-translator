@@ -7,33 +7,57 @@ Chrome/Safari extension for loading translated subtitles on Echo360 recordings; 
 ## What It Does
 
 1. Finds the Echo360 VTT subtitle source for the current lecture.
-2. Translates directly from the extension frontend by default; dev builds can also proxy through the local backend.
+2. Translates directly from the extension frontend by default (`direct_translator.js`); dev builds can also proxy through the local backend.
 3. If the local backend is enabled, the backend calls the bundled VTT translator script as a fallback/batch tool:
    `translator/translate_vtt_zh_deepl_native.py`
-4. The extension mounts the translated VTT back onto the active Echo360 video.
+4. Displays translated subtitles on the active Echo360 video, using either browser subtitle tracks or Echo360 native CC (Beta).
+
+## Subtitle Rendering
+
+The default path uses **browser `<track>` subtitle tracks** (`renderer.js`):
+
+- Single-language mode mounts the translated VTT directly.
+- Bilingual mode is built by `subtitle_strategy.js`: Safari uses a single-cue bilingual VTT; Chrome / Edge use split-cue bilingual VTT.
+
+Optional **Echo360 native CC (Beta)** (checkbox in the control panel, `bilingual_dom_renderer.js`):
+
+- Applies only in bilingual mode and tries to inject translated text into Echo360's built-in CC area.
+- Experimental and off by default; falls back to browser subtitle tracks if matching fails or the page layout changes.
+
+Display preferences (bilingual, order, size) do not require retranslation. The extension caches one translated VTT and renders client-side.
 
 ## Directory Layout
 
 ```text
-backend/     FastAPI dev/fallback service and local translation cache
-extension/   Chrome/Safari extension files
+backend/      FastAPI dev/fallback service and local translation cache
+extension/    Chrome/Safari extension source
+translator/   VTT translator script (backend/fallback path)
+scripts/      Extension build scripts
+tests/        Vitest unit tests for core extension logic
 ```
 
-Extension content-script modules:
+Main extension modules:
 
 ```text
-constants.js       Shared defaults and option lists
-vtt.js             Pure VTT parsing/formatting/bilingual rendering helpers
-storage.js         Chrome storage, config, prefs, and local subtitle cache
-video.js           Echo360 video discovery, media-id hints, and page-probe bridge
-source_finder.js   Subtitle source discovery and subtitle-to-video matching
-renderer.js        Browser subtitle track lifecycle and cue styling
-ui.js              Floating control panel and status updates
-backend_client.js  Backend proxy calls, async job polling, and error messages
-translation_service.js  Source resolution, payload construction, cache keys, backend translation
-controller.js      Translation use-case orchestration
-content.js         Thin content-script entrypoint
-page_probe.js      MAIN-world Echo360/React/XHR probe for media-id hints
+build_config.js           Build target (dev/store) and local-backend switch
+browser_api.js            Chrome / Safari storage and runtime API abstraction
+constants.js              Shared defaults and option lists
+vtt.js                    Pure VTT parsing, formatting, and bilingual helpers
+subtitle_strategy.js      Browser detection and bilingual VTT build strategy
+storage.js                Config, prefs, and local subtitle cache
+video.js                  Echo360 video discovery, media-id hints, and page-probe bridge
+source_finder.js          Subtitle source discovery and subtitle-to-video matching
+bilingual_dom_renderer.js Echo360 native CC DOM bilingual injection (Beta)
+renderer.js               Browser subtitle track lifecycle and cue styling
+direct_translator.js      In-extension direct translation (default store path)
+ui.js                     Floating control panel and status updates
+backend_client.js         Backend proxy, direct job polling, and error messages
+translation_service.js    Payload construction, cache keys, and translation orchestration
+controller.js             Translation use-case orchestration
+content.js                Content-script entrypoint
+page_probe.js             MAIN-world Echo360/React/XHR probe
+background.js             Service worker
+popup.js / options.js     Extension popup and options page
 ```
 
 ## Backend Setup
@@ -83,9 +107,15 @@ Invoke-WebRequest http://127.0.0.1:8765/health
 3. Click `Load unpacked`.
 4. Select the `extension/` directory in this repository.
 
-On an Echo360 classroom page, the control panel appears at the bottom right. Use `加载翻译字幕` for normal loading and `重新翻译` to clear the current cache and rerun translation.
+On an Echo360 classroom page, the floating control panel appears at the bottom right. You can also configure the provider and API key from the extension popup (`popup.html`) or options page (`options.html`). Use `加载翻译字幕` for normal loading and `重新翻译` to clear the current cache and rerun translation.
 
 ## Release Builds
+
+Install Node dependencies at the repo root first:
+
+```bash
+npm install
+```
 
 The source tree keeps the local backend switch available for development. Use the store build for Chrome Web Store submission:
 
@@ -107,10 +137,22 @@ npm run build:dev
 
 The dev build keeps the local backend entry and localhost permissions.
 
+## Testing
+
+Unit tests cover VTT parsing, subtitle strategy, storage, translation payloads, and error handling in `extension/`:
+
+```bash
+npm install
+npm test
+npm run test:coverage
+```
+
+Test files live under `tests/unit/`; see `vitest.config.js` for configuration.
+
 ## Defaults
 
 - provider: `google-web`
-- model: empty by default
+- model: empty by default (Gemini preset: `gemini-3.1-flash-lite`)
 - target: `ZH`
 - max_paragraphs: `6`
 - max_chars: `1200`
@@ -121,15 +163,19 @@ The dev build keeps the local backend entry and localhost permissions.
 - reasoning_effort: empty by default
 - deepseek_thinking_mode: `disabled`
 
+Supported providers: `google-web`, `deepseek`, `openai`, `gemini`, `deepl`. All except `google-web` require an API key.
+
+Target language options: `ZH`, `ZH-HK`, `YUE`, `EN`, `JA`, `KO`, `FR`, `DE`, `ES`, `IT`, `PT`, `RU`, `AR`, `HI`.
+
 In the Chrome Web Store build, advanced translation settings only show provider-specific options:
 - OpenAI: `Reasoning Effort`
 - DeepSeek: `DeepSeek Thinking` (disabled by default to reduce latency)
+- Gemini: default model `gemini-3.1-flash-lite`
 - DeepL: `DeepL Formality`
 
 The dev build also keeps local-backend tuning controls such as `maxParagraphs`, `maxChars`, `concurrency`, `rps`, `retries`, `timeout`, `fallbackMode`, `repairConcurrency`, and `slowSplitThreshold`.
 
 Language notes:
-- Extension target options include `ZH-HK` and `YUE`
 - `deepl` does not support `YUE`; use an AI provider instead (`deepseek`/`openai`/`gemini`)
 
 Google Translate provider:
