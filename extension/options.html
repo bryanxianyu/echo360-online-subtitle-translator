@@ -14,7 +14,57 @@
         --line: #d8cfc3;
         --accent: #0d5c63;
         --accent-soft: #e4f0ef;
+        --accent-ink: #174c50;
         --danger: #9d2b2b;
+        --warning-bg: #fff4df;
+        --warning-ink: #65420c;
+        --grad-a: #fff7e6;
+        --grad-b: #eef5f4;
+        --input-disabled-bg: #f0ebe3;
+        --card-bg: rgba(255, 253, 248, 0.92);
+        --card-shadow: rgba(49, 39, 27, 0.08);
+      }
+
+      :root[data-appearance="dark"] {
+        color-scheme: dark;
+        --bg: #1b1916;
+        --card: #242220;
+        --ink: #ece6dc;
+        --muted: #a89d8c;
+        --line: #3b3731;
+        --accent: #5fd4c8;
+        --accent-soft: #1d3736;
+        --accent-ink: #b8efe7;
+        --danger: #ff8a8a;
+        --warning-bg: #3a2e14;
+        --warning-ink: #eecd8e;
+        --grad-a: #262320;
+        --grad-b: #1a2422;
+        --input-disabled-bg: #2b2925;
+        --card-bg: rgba(36, 34, 32, 0.92);
+        --card-shadow: rgba(0, 0, 0, 0.35);
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-appearance="light"]) {
+          color-scheme: dark;
+          --bg: #1b1916;
+          --card: #242220;
+          --ink: #ece6dc;
+          --muted: #a89d8c;
+          --line: #3b3731;
+          --accent: #5fd4c8;
+          --accent-soft: #1d3736;
+          --accent-ink: #b8efe7;
+          --danger: #ff8a8a;
+          --warning-bg: #3a2e14;
+          --warning-ink: #eecd8e;
+          --grad-a: #262320;
+          --grad-b: #1a2422;
+          --input-disabled-bg: #2b2925;
+          --card-bg: rgba(36, 34, 32, 0.92);
+          --card-shadow: rgba(0, 0, 0, 0.35);
+        }
       }
 
       * { box-sizing: border-box; }
@@ -23,9 +73,10 @@
         margin: 0;
         padding: 28px;
         max-width: 980px;
-        background: radial-gradient(circle at top left, #fff7e6 0, var(--bg) 42%, #eef5f4 100%);
+        background: radial-gradient(circle at top left, var(--grad-a) 0, var(--bg) 42%, var(--grad-b) 100%);
         color: var(--ink);
         font-family: ui-sans-serif, "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+        transition: background-color 0.2s ease, color 0.2s ease;
       }
 
       header {
@@ -59,8 +110,9 @@
       details {
         border: 1px solid var(--line);
         border-radius: 16px;
-        background: rgba(255, 253, 248, 0.92);
-        box-shadow: 0 14px 34px rgba(49, 39, 27, 0.08);
+        background: var(--card-bg);
+        box-shadow: 0 14px 34px var(--card-shadow);
+        transition: background-color 0.2s ease, border-color 0.2s ease;
       }
 
       .card {
@@ -103,7 +155,7 @@
 
       input:disabled {
         color: var(--muted);
-        background: #f0ebe3;
+        background: var(--input-disabled-bg);
       }
 
       input[type="checkbox"] {
@@ -133,7 +185,7 @@
         padding: 12px 14px;
         border-radius: 12px;
         background: var(--accent-soft);
-        color: #174c50;
+        color: var(--accent-ink);
         font-size: 13px;
         line-height: 1.5;
       }
@@ -142,8 +194,8 @@
         margin-top: 12px;
         padding: 12px 14px;
         border-radius: 12px;
-        background: #fff4df;
-        color: #65420c;
+        background: var(--warning-bg);
+        color: var(--warning-ink);
         font-size: 13px;
         line-height: 1.5;
       }
@@ -198,17 +250,17 @@
             <option value="ZH">简体中文</option>
             <option value="ZH-HK">繁体中文（香港）</option>
             <option value="YUE">粤语（繁体）</option>
-            <option value="EN">English</option>
-            <option value="JA">日本語</option>
-            <option value="KO">한국어</option>
-            <option value="FR">Français</option>
-            <option value="DE">Deutsch</option>
-            <option value="ES">Español</option>
-            <option value="IT">Italiano</option>
-            <option value="PT">Português</option>
-            <option value="RU">Русский</option>
-            <option value="AR">العربية</option>
-            <option value="HI">हिन्दी</option>
+            <option value="EN">英语 (English)</option>
+            <option value="JA">日语 (日本語)</option>
+            <option value="KO">韩语 (한국어)</option>
+            <option value="FR">法语 (Français)</option>
+            <option value="DE">德语 (Deutsch)</option>
+            <option value="ES">西班牙语 (Español)</option>
+            <option value="IT">意大利语 (Italiano)</option>
+            <option value="PT">葡萄牙语 (Português)</option>
+            <option value="RU">俄语 (Русский)</option>
+            <option value="AR">阿拉伯语 (العربية)</option>
+            <option value="HI">印地语 (हिन्दी)</option>
           </select>
 
           <label for="apiKey">API Key</label>
@@ -328,6 +380,17 @@
 
       <aside>
         <section class="card">
+          <h2>翻译面板外观</h2>
+          <label for="appearance" style="margin-top:0;">配色模式</label>
+          <select id="appearance">
+            <option value="auto">自动跟随系统</option>
+            <option value="dark">深色模式</option>
+            <option value="light">浅色模式</option>
+          </select>
+          <div class="hint" style="margin-top:8px;">控制 Echo360 页面内翻译面板的配色。"自动"根据操作系统深/浅色偏好自动切换。</div>
+        </section>
+
+        <section class="card" style="margin-top:18px;">
           <h2>首次使用</h2>
           <div class="notice">默认选择 <strong>Google Translate</strong>，因为它免费且无需 API Key，适合首次安装后立即试用。打开 Echo360 录播页后，点击右下角 <strong>加载翻译字幕</strong>。</div>
           <div class="warning">如果你更重视翻译质量，建议改用 DeepSeek、OpenAI、Gemini 或 DeepL，并填写自己的 API Key。字幕文本会发送到你选择的第三方服务进行翻译。</div>

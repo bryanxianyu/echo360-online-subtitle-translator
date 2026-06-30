@@ -43,6 +43,15 @@ const providerHints = {
   deepl: "需要你自己的 DeepL API Key。适合常规机器翻译质量需求；不支持 YUE 目标语言。"
 };
 
+function applyAppearance(mode) {
+  const root = document.documentElement;
+  if (!mode || mode === "auto") {
+    delete root.dataset.appearance;
+  } else {
+    root.dataset.appearance = mode;
+  }
+}
+
 function setStatus(text, isError = false) {
   const status = document.getElementById("status");
   status.textContent = text;
@@ -139,6 +148,8 @@ async function loadConfig() {
   setInputValue("reasoningEffort", config.reasoningEffort || "");
   setInputValue("deepseekThinkingMode", config.deepseekThinkingMode || defaultConfig.deepseekThinkingMode);
   setInputValue("deeplFormality", config.deeplFormality || "");
+  setInputValue("appearance", config.appearance || "auto");
+  applyAppearance(config.appearance || "auto");
   refreshProviderUi();
   refreshBuildUi();
 }
@@ -200,7 +211,8 @@ async function saveConfig() {
     deepseekThinkingMode: provider === "deepseek"
       ? getInputValue("deepseekThinkingMode", defaultConfig.deepseekThinkingMode)
       : defaultConfig.deepseekThinkingMode,
-    deeplFormality: provider === "deepl" ? getInputValue("deeplFormality", "") : ""
+    deeplFormality: provider === "deepl" ? getInputValue("deeplFormality", "") : "",
+    appearance: getInputValue("appearance", "auto") || "auto",
   };
   await extensionApi.storage.local.set({ [STORAGE_KEY]: config });
   setStatus("已保存。请回到 Echo360 页面，点击“加载翻译字幕”。");
@@ -210,6 +222,7 @@ async function saveConfig() {
 }
 
 document.getElementById("provider").addEventListener("change", applyProviderDefaults);
+document.getElementById("appearance").addEventListener("change", (event) => applyAppearance(event.target.value));
 document.getElementById("saveBtn").addEventListener("click", saveConfig);
 refreshBuildUi();
 loadConfig().catch((err) => {

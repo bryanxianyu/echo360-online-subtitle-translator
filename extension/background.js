@@ -207,6 +207,11 @@ extensionApi.runtime.addOnMessageListener(async (message) => {
     return { ok: true, data: job };
   }
 
+  if (message.type === "OPEN_OPTIONS_PAGE") {
+    chrome.runtime.openOptionsPage();
+    return undefined;
+  }
+
   if (message.type !== "proxy-translate" && message.type !== "proxy-request") {
     return undefined;
   }

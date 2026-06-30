@@ -4,6 +4,7 @@
     STORAGE_KEY,
     CACHE_KEY,
     PREFS_KEY_PREFIX,
+    ONBOARDING_KEY,
     DEFAULT_SUBTITLE_SIZE,
     SIZE_MAP,
   } = ns.constants;
@@ -112,6 +113,8 @@
     const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
     const config = value || {
       apiKey: "",
+      apiKeys: {},
+      appearance: "auto",
       useLocalBackend: false,
       backendUrl: "http://127.0.0.1:8765",
       provider: "google-web",
@@ -141,6 +144,15 @@
     await extensionApi.storage.local.set({ [STORAGE_KEY]: config });
   }
 
+  async function getOnboardingSeen() {
+    const obj = await extensionApi.storage.local.get(ONBOARDING_KEY);
+    return !!obj[ONBOARDING_KEY];
+  }
+
+  async function setOnboardingSeen() {
+    await extensionApi.storage.local.set({ [ONBOARDING_KEY]: true });
+  }
+
   async function askApiKeyIfNeeded(config) {
     const provider = String(config.provider || "").toLowerCase();
     const apiKey = String(config.apiKey || "").trim();
@@ -162,5 +174,7 @@
     getConfig,
     saveConfig,
     askApiKeyIfNeeded,
+    getOnboardingSeen,
+    setOnboardingSeen,
   };
 })();
