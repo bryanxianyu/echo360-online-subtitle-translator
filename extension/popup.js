@@ -109,6 +109,10 @@ function selectedProvider() {
   return document.getElementById("modelPreset").value.split("|")[0] || defaultConfig.provider;
 }
 
+// In-memory map of provider → API key, populated on load and updated on switch.
+// Lets users switch providers freely without losing each key they've typed.
+let localApiKeys = {};
+
 function refreshProviderUi() {
   const provider = selectedProvider();
   const isKeyless = keylessProviders.has(provider);
@@ -119,15 +123,26 @@ function refreshProviderUi() {
     : "API Key 只保存在 Chrome 本地 storage。";
   apiKeyEl.disabled = isKeyless;
   apiKeyEl.placeholder = isKeyless ? "Google Translate 不需要 API Key" : "请输入你的 API Key";
-  if (isKeyless) apiKeyEl.value = "";
+  if (isKeyless) {
+    apiKeyEl.value = "";
+    apiKeyEl.dataset.forProvider = "";
+  } else {
+    apiKeyEl.value = localApiKeys[provider] || "";
+    apiKeyEl.dataset.forProvider = provider;
+  }
 }
 
 async function loadConfig() {
   const { [STORAGE_KEY]: value } = await storageGet(STORAGE_KEY);
   const config = { ...defaultConfig, ...(value || {}) };
+  // Build in-memory key map; migrate legacy single apiKey on first load.
+  localApiKeys = { ...(config.apiKeys || {}) };
+  const currentProvider = config.provider || defaultConfig.provider;
+  if (currentProvider && config.apiKey && !localApiKeys[currentProvider]) {
+    localApiKeys[currentProvider] = config.apiKey;
+  }
   const selectedPreset = ensurePresetOption(config);
   renderModelOptions(selectedPreset);
-  document.getElementById("apiKey").value = config.apiKey || "";
   refreshProviderUi();
 }
 
@@ -150,13 +165,17 @@ async function saveConfig() {
   try {
     const { [STORAGE_KEY]: value } = await storageGet(STORAGE_KEY);
     const [provider, model, endpoint] = document.getElementById("modelPreset").value.split("|");
+    const typedKey = keylessProviders.has(provider) ? "" : document.getElementById("apiKey").value.trim();
+    // Persist the currently-typed key into the in-memory map before saving.
+    if (!keylessProviders.has(provider)) localApiKeys[provider] = typedKey;
     const config = {
       ...defaultConfig,
       ...(value || {}),
       provider,
       model,
       endpoint,
-      apiKey: keylessProviders.has(provider) ? "" : document.getElementById("apiKey").value.trim(),
+      apiKey: typedKey,
+      apiKeys: { ...(value?.apiKeys || {}), ...localApiKeys },
       useLocalBackend: enableLocalBackend && !!(value || {}).useLocalBackend,
     };
     await storageSet({ [STORAGE_KEY]: config });
@@ -172,7 +191,15 @@ async function saveConfig() {
 
 document.getElementById("saveBtn").addEventListener("click", saveConfig);
 document.getElementById("optionsBtn").addEventListener("click", openOptionsPage);
-document.getElementById("modelPreset").addEventListener("change", refreshProviderUi);
+document.getElementById("modelPreset").addEventListener("change", () => {
+  // Before switching, save whatever the user typed for the previous provider.
+  const apiKeyEl = document.getElementById("apiKey");
+  const prevProvider = apiKeyEl.dataset.forProvider;
+  if (prevProvider && !keylessProviders.has(prevProvider)) {
+    localApiKeys[prevProvider] = apiKeyEl.value.trim();
+  }
+  refreshProviderUi();
+});
 loadConfig().catch((err) => {
   const status = document.getElementById("status");
   status.textContent = `加载失败：${err?.message || String(err)}`;

@@ -169,6 +169,62 @@ describe("getConfig", () => {
     expect(cfg.provider).toBe("google-web");
     expect(cfg.target).toBe("ZH");
   });
+
+  it("resolves apiKey from apiKeys[provider] map (per-provider key storage)", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        echo360TranslatorConfig: {
+          provider: "deepseek",
+          apiKey: "legacy-key",
+          apiKeys: { deepseek: "sk-deepseek-new", openai: "sk-openai" },
+        },
+      },
+    });
+    const cfg = await storage.getConfig();
+    expect(cfg.apiKey).toBe("sk-deepseek-new");
+  });
+
+  it("falls back to legacy apiKey when apiKeys map has no entry for provider", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        echo360TranslatorConfig: {
+          provider: "gemini",
+          apiKey: "legacy-gemini-key",
+          apiKeys: { deepseek: "sk-deepseek" },
+        },
+      },
+    });
+    const cfg = await storage.getConfig();
+    expect(cfg.apiKey).toBe("legacy-gemini-key");
+  });
+
+  it("returns empty apiKey for keyless provider regardless of stored keys", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        echo360TranslatorConfig: {
+          provider: "google-web",
+          apiKey: "should-be-cleared",
+          apiKeys: { "google-web": "should-also-be-cleared" },
+        },
+      },
+    });
+    const cfg = await storage.getConfig();
+    expect(cfg.apiKey).toBe("");
+  });
+
+  it("preserves apiKeys map from storage", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        echo360TranslatorConfig: {
+          provider: "openai",
+          apiKeys: { openai: "sk-openai", deepseek: "sk-deepseek" },
+        },
+      },
+    });
+    const cfg = await storage.getConfig();
+    expect(cfg.apiKeys.openai).toBe("sk-openai");
+    expect(cfg.apiKeys.deepseek).toBe("sk-deepseek");
+  });
 });
 
 // ---------------------------------------------------------------------------

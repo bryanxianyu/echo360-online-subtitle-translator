@@ -80,6 +80,9 @@ function refreshAdvancedUi(provider) {
   if (emptyHint) emptyHint.hidden = visibleCount > 0 || hasDevAdvanced;
 }
 
+// In-memory map of provider → API key, populated on load and updated on switch.
+let localApiKeys = {};
+
 function refreshProviderUi() {
   const provider = document.getElementById("provider").value;
   const isKeyless = keylessProviders.has(provider);
@@ -94,7 +97,13 @@ function refreshProviderUi() {
     : "API Key 仅保存在 Chrome 本地 storage，用于请求你选择的翻译服务。";
   apiKeyEl.disabled = isKeyless;
   apiKeyEl.placeholder = isKeyless ? "Google Translate 不需要 API Key" : "请输入你的 API Key";
-  if (isKeyless) apiKeyEl.value = "";
+  if (isKeyless) {
+    apiKeyEl.value = "";
+    apiKeyEl.dataset.forProvider = "";
+  } else {
+    apiKeyEl.value = localApiKeys[provider] || "";
+    apiKeyEl.dataset.forProvider = provider;
+  }
   modelEl.disabled = isKeyless;
   if (isKeyless) modelEl.value = "";
   refreshAdvancedUi(provider);
@@ -112,12 +121,20 @@ function refreshBuildUi() {
 async function loadConfig() {
   const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
   const config = { ...defaultConfig, ...(value || {}) };
+  // Build in-memory key map; migrate legacy single apiKey on first load.
+  localApiKeys = { ...(config.apiKeys || {}) };
+  const currentProvider = providerDefaults[config.provider] ? config.provider : defaultConfig.provider;
+  if (currentProvider && config.apiKey && !localApiKeys[currentProvider]) {
+    localApiKeys[currentProvider] = config.apiKey;
+  }
   const useLocalBackendEl = document.getElementById("useLocalBackend");
   const backendUrlEl = document.getElementById("backendUrl");
   if (useLocalBackendEl) useLocalBackendEl.checked = enableLocalBackend && !!config.useLocalBackend;
   if (backendUrlEl) backendUrlEl.value = config.backendUrl;
-  document.getElementById("apiKey").value = config.apiKey;
-  document.getElementById("provider").value = providerDefaults[config.provider] ? config.provider : defaultConfig.provider;
+  const apiKeyEl = document.getElementById("apiKey");
+  apiKeyEl.value = keylessProviders.has(currentProvider) ? "" : (localApiKeys[currentProvider] || "");
+  apiKeyEl.dataset.forProvider = keylessProviders.has(currentProvider) ? "" : currentProvider;
+  document.getElementById("provider").value = currentProvider;
   document.getElementById("model").value = config.model;
   document.getElementById("endpoint").value = config.endpoint || "";
   const targetEl = document.getElementById("target");
@@ -144,6 +161,12 @@ async function loadConfig() {
 }
 
 function applyProviderDefaults() {
+  // Save the outgoing provider's key before switching.
+  const apiKeyEl = document.getElementById("apiKey");
+  const prevProvider = apiKeyEl.dataset.forProvider;
+  if (prevProvider && !keylessProviders.has(prevProvider)) {
+    localApiKeys[prevProvider] = apiKeyEl.value.trim();
+  }
   const provider = document.getElementById("provider").value;
   const defaults = providerDefaults[provider] || providerDefaults.deepseek;
   const modelEl = document.getElementById("model");
@@ -179,10 +202,13 @@ async function saveConfig() {
     setTimeout(() => setStatus(""), 3000);
     return;
   }
+  const typedKey = keylessProviders.has(provider) ? "" : document.getElementById("apiKey").value.trim();
+  if (!keylessProviders.has(provider)) localApiKeys[provider] = typedKey;
   const config = {
     useLocalBackend,
     backendUrl: rawBackendUrl,
-    apiKey: keylessProviders.has(provider) ? "" : document.getElementById("apiKey").value.trim(),
+    apiKey: typedKey,
+    apiKeys: { ...(existingValue?.apiKeys || {}), ...localApiKeys },
     provider,
     model: keylessProviders.has(provider) ? "" : document.getElementById("model").value.trim(),
     endpoint: document.getElementById("endpoint").value.trim(),

@@ -2,6 +2,8 @@ importScripts("build_config.js", "browser_api.js", "direct_translator.js");
 
 const extensionApi = globalThis.Echo360ExtensionApi;
 const buildConfig = globalThis.Echo360BuildConfig || {};
+const STORAGE_KEY = "echo360TranslatorConfig";
+const KEYLESS_PROVIDERS_BG = new Set(["google-web"]);
 const DIRECT_CACHE_KEY = "echo360DirectTranslateCache";
 const DIRECT_CACHE_MAX_ENTRIES = 10;
 const DIRECT_CACHE_MAX_CHARS = 5_000_000;
@@ -94,6 +96,23 @@ async function setDirectCacheEntry(cacheKey, translatedVtt) {
   }
 }
 
+/**
+ * Reads the stored API key for the given provider so the service worker can
+ * inject it into translation payloads. Content scripts never need to touch the
+ * key directly — they send payloads without api_key and the SW fills it in.
+ */
+async function resolveApiKey(provider) {
+  if (!provider || KEYLESS_PROVIDERS_BG.has(provider)) return "";
+  try {
+    const obj = await extensionApi.storage.local.get(STORAGE_KEY);
+    const config = obj[STORAGE_KEY];
+    if (!config) return "";
+    return config.apiKeys?.[provider] || config.apiKey || "";
+  } catch {
+    return "";
+  }
+}
+
 function createDirectJob(payload) {
   const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const job = {
@@ -171,7 +190,8 @@ async function proxyBackendRequest(message) {
     const headers = { "Content-Type": "application/json", ...(message.headers || {}) };
     const init = { method, headers };
     if (message.payload != null) {
-      init.body = JSON.stringify(message.payload);
+      const api_key = await resolveApiKey(message.payload.provider || "");
+      init.body = JSON.stringify({ ...message.payload, api_key });
     }
     const resp = await fetch(`${base}${path}`, init);
     const text = await resp.text();
@@ -195,7 +215,9 @@ extensionApi.runtime.addOnMessageListener(async (message) => {
 
   if (message.type === "direct-translate-async") {
     pruneDirectJobs();
-    const jobId = createDirectJob(message.payload || {});
+    const rawPayload = message.payload || {};
+    const api_key = await resolveApiKey(rawPayload.provider || "");
+    const jobId = createDirectJob({ ...rawPayload, api_key });
     return { ok: true, data: { job_id: jobId } };
   }
 
