@@ -24,7 +24,21 @@
     if (!vttText) {
       const started = Date.now();
       while (!vttText && Date.now() - started < 12000) {
-        const cand = await ns.sourceFinder.fetchBestVttFromCandidates(ns.video.getPrimaryVideo() || initialVideo);
+        const currentVideo = ns.video.getPrimaryVideo() || initialVideo;
+
+        // Try Echo360's own transcript-file API first: it works even when the
+        // player exposes no native CC track at all (only a transcript side
+        // panel), since it doesn't depend on spotting a "vtt"/"caption"-looking
+        // network request.
+        const transcriptCand = await ns.sourceFinder.fetchTranscriptFileVtt(currentVideo);
+        if (transcriptCand.text) {
+          vttText = transcriptCand.text;
+          sourceId = transcriptCand.sourceId;
+          sourceMeta = transcriptCand.sourceMeta;
+          break;
+        }
+
+        const cand = await ns.sourceFinder.fetchBestVttFromCandidates(currentVideo);
         if (cand.text) {
           vttText = cand.text;
           sourceId = cand.sourceId;

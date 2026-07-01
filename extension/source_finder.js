@@ -51,6 +51,109 @@
     return Array.from(dedup.values()).sort((a, b) => b.responseEnd - a.responseEnd).slice(0, 20);
   }
 
+  function getLessonId() {
+    const m = String(location.pathname || "").match(/\/lesson\/([^/]+)/);
+    return m ? m[1] : "";
+  }
+
+  function collectTranscriptMediaIdCandidates() {
+    const lessonId = getLessonId();
+    const lessonLower = lessonId.toLowerCase();
+    const resourceIds = [...videoApi.collectInteractiveMediaIdsFromResources()];
+    const hintIds = [];
+    const seen = new Set(resourceIds);
+    for (const v of videoApi.getAllVideos()) {
+      for (const id of videoApi.getVideoHintMediaIds(v)) {
+        if (seen.has(id)) continue;
+        // React fiber / lesson URLs often leak partial UUIDs from the lesson id
+        // itself (e.g. 2f659ee3… from G_2f659ee3-…_927f0a6a-…). They never
+        // resolve to a transcript-file endpoint and only add console noise.
+        if (lessonLower.includes(String(id).toLowerCase())) continue;
+        seen.add(id);
+        hintIds.push(id);
+      }
+    }
+    return { lessonId, resourceIds, hintIds };
+  }
+
+  async function tryTranscriptFileForMediaIds(lessonId, mediaIds, video) {
+    if (mediaIds.length === 0) return null;
+    const nowSec = Number(video?.currentTime || 0);
+    let best = null;
+    for (const mediaId of mediaIds) {
+      const url = `${location.origin}/api/ui/echoplayer/lessons/${encodeURIComponent(lessonId)}/medias/${encodeURIComponent(mediaId)}/transcript-file?format=vtt`;
+      try {
+        const resp = await fetch(url, { credentials: "include" });
+        if (!resp.ok) continue;
+        const text = await resp.text();
+        if (!(text.trim().startsWith("WEBVTT") || text.includes("-->"))) continue;
+        const stats = vttApi.parseVttStats(text);
+        if (stats.cueCount <= 0) continue;
+        const coversNow = stats.ranges.some(([s, e]) => nowSec >= s && nowSec <= e);
+        const score = (coversNow ? 1_000_000 : 0) + stats.maxEnd * 100 + stats.cueCount;
+        if (!best || score > best.score) {
+          best = { score, text, url, mediaId, cueCount: stats.cueCount, coversNow };
+        }
+      } catch (_) {}
+    }
+    return best;
+  }
+
+  function buildTranscriptFileResult(best) {
+    return {
+      text: best.text,
+      sourceId: best.url,
+      strongMapped: true,
+      sourceMeta: {
+        sourceId: best.url,
+        mediaId: best.mediaId,
+        mapSource: "transcript-file",
+        stats: vttApi.parseVttStats(best.text),
+      },
+    };
+  }
+
+  // Echo360's transcript side panel (search icon + speaker labels, e.g. when
+  // the player itself shows no CC track) is backed by a stable, documented
+  // API — the same one its own "Download" button uses — rather than a
+  // network request whose URL contains "vtt"/"caption"/"subtitle". Hitting
+  // it directly finds a real, cue-timed VTT even when collectCandidateSubtitleUrls()
+  // and the <track>/TextTrack based lookups all come up empty.
+  async function fetchTranscriptFileVtt(video) {
+    const empty = { text: "", sourceId: "", strongMapped: false, sourceMeta: null };
+    const { lessonId, resourceIds, hintIds } = collectTranscriptMediaIdCandidates();
+    if (!lessonId || (resourceIds.length === 0 && hintIds.length === 0)) return empty;
+
+    // Interactive-media resource ids map directly to this lesson's transcript.
+    // When one of them hits, stop immediately — do not keep probing React-fiber
+    // hint UUIDs that mostly 404 and clutter the console.
+    let best = await tryTranscriptFileForMediaIds(lessonId, resourceIds, video);
+    if (best) {
+      console.log(
+        "[echo360-translator] using Echo360 transcript-file API VTT:",
+        best.url,
+        "cues=",
+        best.cueCount,
+        "coversNow=",
+        best.coversNow
+      );
+      return buildTranscriptFileResult(best);
+    }
+
+    best = await tryTranscriptFileForMediaIds(lessonId, hintIds, video);
+    if (!best) return empty;
+
+    console.log(
+      "[echo360-translator] using Echo360 transcript-file API VTT:",
+      best.url,
+      "cues=",
+      best.cueCount,
+      "coversNow=",
+      best.coversNow
+    );
+    return buildTranscriptFileResult(best);
+  }
+
   function buildSourceMeta(sourceId, vttText) {
     return {
       sourceId: sourceId || "",
@@ -196,6 +299,7 @@
     exportVttFromTextTracks,
     collectCandidateSubtitleUrls,
     buildSourceMeta,
+    fetchTranscriptFileVtt,
     fetchBestVttFromCandidates,
     pickBestMountVideoByVtt,
   };

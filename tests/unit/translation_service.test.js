@@ -9,6 +9,8 @@ import { evalModule, makeFullNs } from "../helpers/load-module.js";
 
 let svc;
 let backendClientMock;
+let sourceFinderMock;
+let videoMock;
 
 beforeAll(() => {
   backendClientMock = {
@@ -18,6 +20,17 @@ beforeAll(() => {
     proxyTranslateSync: vi.fn(),
     waitJob: vi.fn(),
   };
+  sourceFinderMock = {
+    findBestTrackElement: vi.fn(() => null),
+    exportVttFromTextTracks: vi.fn(async () => ""),
+    fetchTranscriptFileVtt: vi.fn(async () => ({ text: "", sourceId: "", strongMapped: false, sourceMeta: null })),
+    fetchBestVttFromCandidates: vi.fn(async () => ({ text: "", sourceId: "", strongMapped: false, sourceMeta: null })),
+    collectCandidateSubtitleUrls: vi.fn(() => []),
+    buildSourceMeta: vi.fn((sourceId, vttText) => ({ sourceId, mediaId: "", mapSource: "", stats: {} })),
+  };
+  videoMock = {
+    getPrimaryVideo: vi.fn(() => null),
+  };
   const ns = makeFullNs({
     buildConfig: { buildTarget: "store", enableLocalBackend: false },
     backendClient: backendClientMock,
@@ -25,8 +38,8 @@ beforeAll(() => {
       sha256Text: vi.fn(async (text) => `hash-${text.length}`),
       buildConfigSignature: vi.fn((cfg) => `${cfg.provider}|${cfg.model}`),
     },
-    sourceFinder: {},
-    video: {},
+    sourceFinder: sourceFinderMock,
+    video: videoMock,
   });
   window.Echo360Translator = ns;
   evalModule("translation_service.js");
@@ -35,6 +48,57 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sourceFinderMock.findBestTrackElement.mockReturnValue(null);
+  sourceFinderMock.exportVttFromTextTracks.mockResolvedValue("");
+  sourceFinderMock.fetchTranscriptFileVtt.mockResolvedValue({ text: "", sourceId: "", strongMapped: false, sourceMeta: null });
+  sourceFinderMock.fetchBestVttFromCandidates.mockResolvedValue({ text: "", sourceId: "", strongMapped: false, sourceMeta: null });
+  sourceFinderMock.collectCandidateSubtitleUrls.mockReturnValue([]);
+  videoMock.getPrimaryVideo.mockReturnValue(null);
+});
+
+describe("resolveSourceVtt", () => {
+  it("uses the transcript-file API result when found, without falling through to the generic candidate scan", async () => {
+    sourceFinderMock.fetchTranscriptFileVtt.mockResolvedValue({
+      text: "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nHi\n",
+      sourceId: "https://echo360.net.au/api/ui/echoplayer/lessons/abc/medias/m1/transcript-file?format=vtt",
+      strongMapped: true,
+      sourceMeta: { sourceId: "x", mediaId: "m1", mapSource: "transcript-file", stats: {} },
+    });
+
+    const result = await svc.resolveSourceVtt({});
+
+    expect(result.vttText).toContain("Hi");
+    expect(result.sourceMeta.mapSource).toBe("transcript-file");
+    expect(sourceFinderMock.fetchBestVttFromCandidates).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the generic candidate scan when the transcript-file API finds nothing (e.g. institution doesn't expose it)", async () => {
+    sourceFinderMock.fetchBestVttFromCandidates.mockResolvedValue({
+      text: "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nHi\n",
+      sourceId: "https://example.com/captions.vtt",
+      strongMapped: true,
+      sourceMeta: { sourceId: "https://example.com/captions.vtt", mediaId: "", mapSource: "video", stats: {} },
+    });
+
+    const result = await svc.resolveSourceVtt({});
+
+    expect(result.vttText).toContain("Hi");
+    expect(sourceFinderMock.fetchTranscriptFileVtt).toHaveBeenCalled();
+  });
+
+  it("throws a clear error when no VTT source can be found by any strategy", async () => {
+    vi.useFakeTimers();
+    try {
+      sourceFinderMock.collectCandidateSubtitleUrls.mockReturnValue([{ url: "https://example.com/x" }]);
+      const promise = svc.resolveSourceVtt({}).catch((e) => e);
+      await vi.advanceTimersByTimeAsync(12000);
+      const result = await promise;
+      expect(result).toBeInstanceOf(Error);
+      expect(result.message).toContain("未找到可用字幕源");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("buildTranslatePayload", () => {
