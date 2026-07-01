@@ -106,6 +106,26 @@ export function makeFullNs(overrides = {}) {
   };
 }
 
+/**
+ * Loads the ui_*.js modules plus ui.js, in the same dependency order the
+ * manifest's content_scripts list uses. Use this instead of
+ * `evalModule("ui.js")` directly — ui.js is now a thin facade over
+ * ui_theme/ui_styles/ui_ball/ui_onboarding/ui_panel/ui_popover.
+ */
+export function loadUiModules() {
+  for (const filename of [
+    "ui_theme.js",
+    "ui_styles.js",
+    "ui_ball.js",
+    "ui_onboarding.js",
+    "ui_panel.js",
+    "ui_popover.js",
+    "ui.js",
+  ]) {
+    evalModule(filename);
+  }
+}
+
 /** Minimal mock for extensionApi.storage.local backed by a plain object. */
 export function makeStorageMock(initial = {}) {
   const store = { ...initial };

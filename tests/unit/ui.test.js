@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { evalModule, makeFullNs } from "../helpers/load-module.js";
+import { loadUiModules, makeFullNs } from "../helpers/load-module.js";
 
 function setupUi(initialPrefs) {
   Object.defineProperty(window, "location", {
@@ -16,7 +16,7 @@ function setupUi(initialPrefs) {
       getConfig: vi.fn(async () => ({ target: "ZH" })),
     },
   });
-  evalModule("ui.js");
+  loadUiModules();
   window.Echo360Translator.ui.ensurePanel({ onPrefsChanged: vi.fn() });
 }
 
