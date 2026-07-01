@@ -2,7 +2,6 @@
   const ns = window.Echo360Translator;
   const SIZE_RATIO = { small: 0.038, medium: 0.046, large: 0.054 };
   const NATIVE_CAPTION_GRACE_MS = 750;
-  const NATIVE_SEARCH_INTERVAL_MS = 200;
   const INJECTED_LINE_SELECTOR = "[data-echo360-translated-line='1']";
   const INJECTION_STYLE_ID = "echo360-translator-dom-injection-style";
   const DEBUG_ELEMENT_ID = "echo360-translator-dom-debug";
@@ -95,9 +94,38 @@
 
   function elementTextWithoutInjectedLine(element) {
     if (!element) return "";
-    const clone = element.cloneNode(true);
-    clone.querySelectorAll?.(INJECTED_LINE_SELECTOR).forEach((line) => line.remove());
-    return normalizeText(clone.textContent || "");
+    // Intentionally avoids cloneNode(true): cloning a subtree that contains
+    // the player's <video>/<audio> element makes Chrome re-issue a fetch for
+    // its (often blob:) src on the detached clone, which fails loudly in the
+    // console (net::ERR_FILE_NOT_FOUND) without any functional benefit here.
+    // Walking text nodes directly gets the same result with no side effects.
+    // Note: only *descendants* matching INJECTED_LINE_SELECTOR are skipped,
+    // matching the previous clone + querySelectorAll(...).remove() behavior
+    // (which never dropped the root element's own text).
+    let text = "";
+    const collectChildren = (node) => {
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          text += child.textContent || "";
+        } else if (child.nodeType === Node.ELEMENT_NODE && !child.matches?.(INJECTED_LINE_SELECTOR)) {
+          collectChildren(child);
+        }
+      }
+    };
+    if (element.nodeType === Node.TEXT_NODE) text += element.textContent || "";
+    else collectChildren(element);
+    return normalizeText(text);
+  }
+
+  function elementTextMatchesSource(element, sourceProbe, normalizedSource) {
+    const text = elementTextWithoutInjectedLine(element);
+    if (!text || text.length > Math.max(260, normalizedSource.length * 4)) return false;
+    if (!(text.includes(sourceProbe) || normalizedSource.includes(text))) return false;
+    const childMatch = Array.from(element.children || []).some((child) => {
+      if (child.matches?.(INJECTED_LINE_SELECTOR)) return false;
+      return elementTextWithoutInjectedLine(child).includes(sourceProbe);
+    });
+    return !childMatch;
   }
 
   function findNativeCaptionElement(sourceText) {
@@ -105,6 +133,20 @@
     const normalizedSource = normalizeText(sourceText);
     if (!normalizedSource) return null;
     const sourceProbe = normalizedSource.length > 56 ? normalizedSource.slice(0, 56) : normalizedSource;
+
+    // Fast path: most caption widgets (including Echo360's) reuse the same
+    // container element across cues and just swap its text content. Trying
+    // the previously matched anchor first turns the common case into an O(1)
+    // check instead of a full player-subtree scan, and skips the layout/style
+    // recalculation cost for every other element entirely.
+    if (
+      state.nativeAnchor?.isConnected &&
+      isVisibleInPlayer(state.nativeAnchor) &&
+      elementTextMatchesSource(state.nativeAnchor, sourceProbe, normalizedSource)
+    ) {
+      return state.nativeAnchor;
+    }
+
     const elements = Array.from(state.player.querySelectorAll("*"));
     const playerRect = state.player.getBoundingClientRect();
     let best = null;
@@ -112,19 +154,14 @@
     for (const element of elements) {
       const tag = element.tagName;
       if (/^(SCRIPT|STYLE|NOSCRIPT|SVG|CANVAS|VIDEO|BUTTON|INPUT|SELECT|TEXTAREA)$/i.test(tag)) continue;
+      // Cheap text comparison first; only elements that already match text
+      // pay for a forced layout/style read via isVisibleInPlayer below. On a
+      // typical player DOM, this cuts the number of getBoundingClientRect/
+      // getComputedStyle calls from "every element" down to a handful.
+      if (!elementTextMatchesSource(element, sourceProbe, normalizedSource)) continue;
       if (!isVisibleInPlayer(element)) continue;
 
       const text = elementTextWithoutInjectedLine(element);
-      if (!text || text.length > Math.max(260, normalizedSource.length * 4)) continue;
-      const matches = text.includes(sourceProbe) || normalizedSource.includes(text);
-      if (!matches) continue;
-
-      const childMatch = Array.from(element.children || []).some((child) => {
-        if (child.matches?.(INJECTED_LINE_SELECTOR)) return false;
-        return elementTextWithoutInjectedLine(child).includes(sourceProbe);
-      });
-      if (childMatch) continue;
-
       const rect = element.getBoundingClientRect();
       const bottomScore = Math.max(0, rect.top - playerRect.top) / Math.max(1, playerRect.height);
       const hint = `${element.id || ""} ${element.className || ""} ${element.getAttribute("role") || ""}`;
@@ -231,11 +268,8 @@
   function renderCurrentCue() {
     if (!state || !ensureAttached()) return;
     const index = findCueIndex(Number(state.video.currentTime || 0));
-    if (
-      index === state.lastCueIndex &&
-      state.nativeInjectedCueIndex === index &&
-      state.player.querySelector(INJECTED_LINE_SELECTOR)
-    ) {
+    const injectedStillPresent = !!state.player.querySelector(INJECTED_LINE_SELECTOR);
+    if (index === state.lastCueIndex && state.nativeInjectedCueIndex === index && injectedStillPresent) {
       publishDebugState();
       return;
     }
@@ -243,7 +277,13 @@
       state.lastCueIndex = index;
       state.nativeInjectedCueIndex = -2;
       state.nativeCaptionWaitUntil = performance.now() + NATIVE_CAPTION_GRACE_MS;
-      state.nextNativeSearchAt = 0;
+      state.nativeSearchExhausted = false;
+    } else if (state.nativeInjectedCueIndex === index && !injectedStillPresent) {
+      // Echo360 swapped/removed the caption node without a cue change (e.g. it
+      // re-renders its own box mid-cue). Force an immediate re-match instead of
+      // waiting on a polling interval.
+      state.nativeInjectedCueIndex = -2;
+      state.nativeSearchExhausted = false;
     }
     const cue = index >= 0 ? state.cues[index] : null;
     if (!state.visible) {
@@ -251,16 +291,26 @@
       publishDebugState();
       return;
     }
+    // As long as this cue hasn't been matched yet, every trigger
+    // (timeupdate/rVFC/mutation) retries immediately - no fixed polling
+    // interval. Once matched, the early-return above avoids re-scanning the
+    // DOM every frame. Once the grace period lapses without ever finding a
+    // match (e.g. Echo360's own CC is turned off, so there is nothing to find
+    // for the whole video), stop scanning altogether until a real DOM
+    // mutation or cue change gives a reason to look again - otherwise this
+    // would scan the entire player subtree on every video frame forever.
     const now = performance.now();
-    const shouldSearchNative = cue && state.visible && now >= state.nextNativeSearchAt;
-    if (shouldSearchNative) state.nextNativeSearchAt = now + NATIVE_SEARCH_INTERVAL_MS;
+    const shouldSearchNative = !!cue && state.nativeInjectedCueIndex !== index && !state.nativeSearchExhausted;
     if (shouldSearchNative && injectIntoNativeCaption(cue)) {
       state.nativeInjectedCueIndex = index;
       state.nativeInjectionHits += 1;
       publishDebugState();
       return;
     }
-    state.nativeInjectedCueIndex = -1;
+    if (shouldSearchNative) {
+      state.nativeInjectedCueIndex = -1;
+      if (now >= state.nativeCaptionWaitUntil) state.nativeSearchExhausted = true;
+    }
     if (!cue && state.nativeAnchor?.isConnected && isVisibleInPlayer(state.nativeAnchor)) {
       publishDebugState();
       return;
@@ -298,13 +348,13 @@
       nativeInjectedCueIndex: -2,
       nativeInjectionHits: 0,
       nativeCaptionWaitUntil: 0,
-      nextNativeSearchAt: 0,
+      nativeSearchExhausted: false,
       nativeAnchor: null,
       nativeAnchorDebug: null,
       listeners: [],
       frameHandle: null,
       mutationObserver: null,
-      mutationFrameHandle: null,
+      handlingMutation: false,
     };
 
     for (const eventName of ["timeupdate", "seeked", "play", "loadedmetadata"]) {
@@ -313,13 +363,26 @@
       state.listeners.push([eventName, listener]);
     }
     state.mutationObserver = new MutationObserver((mutations) => {
-      if (!state || state.mutationFrameHandle !== null || !mutationCouldAffectActiveCaption(mutations)) return;
-      state.mutationFrameHandle = requestAnimationFrame(() => {
-        if (!state) return;
-        state.mutationFrameHandle = null;
-        state.nextNativeSearchAt = 0;
+      // Handled synchronously, in the same microtask as Echo360's own DOM
+      // write: MutationObserver callbacks run before the browser paints, so
+      // reacting here (instead of deferring to requestAnimationFrame) lands
+      // our injection in the *same* frame as the native caption change
+      // instead of the next one.
+      if (!state || state.handlingMutation || !mutationCouldAffectActiveCaption(mutations)) return;
+      state.handlingMutation = true;
+      try {
+        // Force a fresh match even if this cue was already resolved: Echo360
+        // may have mutated the anchor's text in place (e.g. corrected a typo)
+        // without swapping the node, so the presence check alone wouldn't
+        // catch it. Also clear the "gave up" flag: a relevant mutation is a
+        // concrete reason to look again even if earlier attempts this cue
+        // were exhausted.
+        state.nativeInjectedCueIndex = -2;
+        state.nativeSearchExhausted = false;
         renderCurrentCue();
-      });
+      } finally {
+        state.handlingMutation = false;
+      }
     });
     state.mutationObserver.observe(player, { childList: true, characterData: true, subtree: true });
 
@@ -341,6 +404,7 @@
       injectedLineCount: state.player.querySelectorAll(INJECTED_LINE_SELECTOR).length,
       nativeInjectionHits: state.nativeInjectionHits,
       waitingForNativeCaption: performance.now() < state.nativeCaptionWaitUntil,
+      nativeSearchExhausted: state.nativeSearchExhausted,
       playerAttached: state.player.isConnected,
       nativeAnchor: state.nativeAnchorDebug,
     };
@@ -373,7 +437,6 @@
       state.video.cancelVideoFrameCallback(state.frameHandle);
     }
     state.mutationObserver?.disconnect();
-    if (state.mutationFrameHandle !== null) cancelAnimationFrame(state.mutationFrameHandle);
     clearInjectedLines();
     state = null;
     publishDebugState();
