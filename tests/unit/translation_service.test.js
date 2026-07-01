@@ -63,7 +63,9 @@ describe("buildTranslatePayload", () => {
       false
     );
     expect(payload.vtt_text).toContain("WEBVTT");
-    expect(payload.api_key).toBe("sk-test");
+    // api_key is intentionally omitted from the payload; the service worker
+    // reads and injects it directly from storage before executing the job.
+    expect(payload.api_key).toBeUndefined();
     expect(payload.provider).toBe("deepseek");
     expect(payload.endpoint).toBe("https://custom/v1");
     expect(payload.max_paragraphs).toBe(8);

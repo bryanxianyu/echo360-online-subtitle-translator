@@ -134,10 +134,17 @@
       deepseekThinkingMode: "disabled",
       deeplFormality: "",
     };
+    // Resolve the effective API key for the current provider from the per-provider
+    // map, falling back to the legacy single apiKey field for migration.
+    const provider = config.provider || "google-web";
+    const effectiveApiKey = KEYLESS_PROVIDERS.has(provider)
+      ? ""
+      : (config.apiKeys?.[provider] ?? config.apiKey ?? "");
+    const resolved = { ...config, apiKey: effectiveApiKey, apiKeys: config.apiKeys || {} };
     if (!isLocalBackendEnabled()) {
-      return { ...config, useLocalBackend: false };
+      return { ...resolved, useLocalBackend: false };
     }
-    return config;
+    return resolved;
   }
 
   async function saveConfig(config) {
