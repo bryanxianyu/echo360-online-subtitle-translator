@@ -51,7 +51,8 @@
   function buildTranslatePayload(cfg, vttText, forceRefresh) {
     return {
       vtt_text: vttText,
-      api_key: cfg.apiKey,
+      // api_key is intentionally omitted — the service worker injects it from
+      // storage.local so content scripts never need to handle the raw key.
       provider: cfg.provider,
       model: cfg.model,
       endpoint: cfg.endpoint || "",

@@ -79,7 +79,22 @@ export function makeFullNs(overrides = {}) {
       STORAGE_KEY: "echo360TranslatorConfig",
       CACHE_KEY: "echo360TranslatedVttCache",
       PREFS_KEY_PREFIX: "echo360TranslatorPrefs::",
+      ONBOARDING_KEY: "echo360TranslatorOnboardingSeen",
+      PROVIDER_LABELS: {
+        "google-web": "Google Translate",
+        deepseek: "DeepSeek",
+        gemini: "Gemini",
+        openai: "OpenAI",
+        deepl: "DeepL",
+      },
       TARGET_OPTIONS: ["ZH", "ZH-HK", "YUE", "EN", "JA"],
+      TARGET_LABELS: {
+        ZH: "简体中文",
+        "ZH-HK": "繁体中文（香港）",
+        YUE: "粤语（繁体）",
+        EN: "英语 (English)",
+        JA: "日语 (日本語)",
+      },
       DEFAULT_SUBTITLE_SIZE: "medium",
       SIZE_MAP: { small: "62%", medium: "70%", large: "78%" },
       SAFARI_SIZE_MAP: { small: "94%", medium: "110%", large: "128%" },
@@ -87,8 +102,43 @@ export function makeFullNs(overrides = {}) {
     },
     buildConfig: { buildTarget: "store", enableLocalBackend: false },
     state: { latestPageVideoSnapshot: [] },
+    // Minimal browserApi stub — enough for modules (e.g. ui_popover.js) that
+    // just register a storage.onChanged listener without exercising it.
+    browserApi: {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => {}),
+          remove: vi.fn(async () => {}),
+        },
+        onChanged: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      },
+    },
     ...overrides,
   };
+}
+
+/**
+ * Loads the ui_*.js modules plus ui.js, in the same dependency order the
+ * manifest's content_scripts list uses. Use this instead of
+ * `evalModule("ui.js")` directly — ui.js is now a thin facade over
+ * ui_theme/ui_styles/ui_ball/ui_onboarding/ui_panel/ui_popover.
+ */
+export function loadUiModules() {
+  for (const filename of [
+    "ui_theme.js",
+    "ui_styles.js",
+    "ui_ball.js",
+    "ui_onboarding.js",
+    "ui_panel.js",
+    "ui_popover.js",
+    "ui.js",
+  ]) {
+    evalModule(filename);
+  }
 }
 
 /** Minimal mock for extensionApi.storage.local backed by a plain object. */
