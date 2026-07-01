@@ -251,6 +251,136 @@ describe("DOM injection via native caption double", () => {
     expect(span.hasAttribute("data-echo360-translated-line")).toBe(false);
     expect(span.hasAttribute("data-echo360-translation")).toBe(false);
   });
+
+  it("P13: retries on the very next trigger with no fixed polling delay", () => {
+    // Regression guard for the removed 200ms NATIVE_SEARCH_INTERVAL_MS throttle:
+    // once a cue is unmatched, every subsequent trigger should retry immediately
+    // rather than waiting out a fixed interval.
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+    // First attempt (inside mount, at now=0) failed: no matching span yet.
+
+    const span = addCaptionSpan(player, "Hello world");
+
+    // Advance only 10ms (well under the old 200ms interval) and well within
+    // the 750ms grace period.
+    mockNow = 10;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(span.getAttribute("data-echo360-translated-line")).toBe("1");
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+    expect(renderer.getDebugState().nativeInjectionHits).toBe(1);
+  });
+
+  it("P15: never clones DOM nodes while searching (avoids re-triggering the player's <video> src)", () => {
+    // Regression guard: findNativeCaptionElement used to call
+    // element.cloneNode(true) on every scanned element to strip out
+    // previously-injected lines before reading textContent. Since #player
+    // contains the <video> itself, cloning any of its ancestors deep-clones
+    // the <video> too, and Chrome re-issues a fetch for its (often blob:)
+    // src on the detached clone - failing loudly in the console for no
+    // functional benefit. The text-collection walk must never call
+    // cloneNode.
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video); // player contains `video` as a child
+    const cloneSpy = vi.spyOn(Element.prototype, "cloneNode");
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    addCaptionSpan(player, "Hello world");
+    mockNow = 10;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(cloneSpy).not.toHaveBeenCalled();
+  });
+
+  it("P16: stops full-tree scanning once the grace period expires with no match (e.g. Echo360 CC is off)", () => {
+    // Without this, a cue that never has a matching native caption (because
+    // the user turned Echo360's own CC off) would trigger a full player
+    // subtree scan on every single trigger (timeupdate/rVFC) forever.
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video); // no matching caption span ever added
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    mockNow = 800; // past the 750ms grace period, still no match found
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(true);
+
+    // clearInjectedLines() still does a cheap, targeted querySelectorAll for
+    // the injected-line selector each time; what must NOT happen anymore is
+    // the expensive full "*" subtree scan that findNativeCaptionElement does.
+    const scanSpy = vi.spyOn(player, "querySelectorAll");
+    mockNow = 850;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 900;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(scanSpy).not.toHaveBeenCalledWith("*");
+  });
+
+  it("P17: reuses the same anchor across cues without a full-tree scan (sticky anchor fast path)", () => {
+    // Echo360's own caption box typically stays the same DOM node across
+    // cues and just swaps its text. The fast path should detect this by
+    // re-checking the previous anchor directly instead of re-scanning the
+    // whole player subtree.
+    const video = makeVideo(1.0); // cue 0
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    const span = addCaptionSpan(player, "Hello world");
+    mockNow = 10;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+
+    // Echo360 reuses the same node for the next cue: it just swaps the text.
+    span.textContent = "Second line";
+    video.currentTime = 3.0; // cue 1 (2.5s - 4.5s)
+    mockNow = 20;
+
+    const scanSpy = vi.spyOn(player, "querySelectorAll");
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(span.getAttribute("data-echo360-translation")).toBe("第二行");
+    expect(scanSpy).not.toHaveBeenCalledWith("*");
+  });
+
+  it("P18: only pays the layout/style cost for text-matching candidates during a full scan", () => {
+    // Regression guard for reordering the cheap text check before the
+    // layout-forcing isVisibleInPlayer() check: unrelated elements should
+    // never reach getComputedStyle at all.
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video);
+    for (let i = 0; i < 5; i += 1) {
+      const decoy = document.createElement("div");
+      decoy.textContent = `unrelated decoy text ${i}`;
+      stubRect(decoy, { width: 200, height: 30, top: 400, left: 220, bottom: 430, right: 420 });
+      player.appendChild(decoy);
+    }
+    const span = addCaptionSpan(player, "Hello world");
+
+    const styleSpy = vi.spyOn(window, "getComputedStyle");
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    expect(styleSpy).toHaveBeenCalledTimes(1);
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+  });
+
+  it("P14: MutationObserver injects synchronously without a video event or rAF flush", async () => {
+    // No timeupdate/seeked/play/rVFC trigger at all: only the MutationObserver
+    // reacting to Echo360 creating its caption node should cause the
+    // injection. Awaiting a single microtask tick (no fake-timer/rAF flush)
+    // is enough, proving the reaction happens in the same frame as the
+    // mutation rather than one frame later.
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    const span = addCaptionSpan(player, "Hello world");
+    await Promise.resolve();
+
+    expect(span.getAttribute("data-echo360-translated-line")).toBe("1");
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+  });
 });
 
 // ── P10 / P11 ─────────────────────────────────────────────────────────────────
