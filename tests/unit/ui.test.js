@@ -118,3 +118,106 @@ describe("settings popover render mode controls", () => {
     expect(reverseOrder.checked).toBe(false);
   });
 });
+
+describe("settings popover translation service display", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("updates the displayed translation service in real time when the config changes elsewhere", async () => {
+    let changeListener;
+    Object.defineProperty(window, "location", {
+      value: { hostname: "echo360.org", pathname: "/lesson/test-id" },
+      configurable: true,
+      writable: true,
+    });
+    document.body.innerHTML = "";
+    document.head.innerHTML = "";
+
+    window.Echo360Translator = makeFullNs({
+      storage: {
+        getPrefs: vi.fn(async () => ({
+          enabled: true,
+          bilingual: false,
+          reverseOrder: false,
+          browserBilingual: false,
+          browserReverseOrder: false,
+          useNativeSubtitles: true,
+          size: "medium",
+        })),
+        getConfig: vi.fn(async () => ({ target: "ZH", provider: "google-web" })),
+      },
+      browserApi: {
+        storage: {
+          local: {
+            get: vi.fn(async () => ({})),
+            set: vi.fn(async () => {}),
+            remove: vi.fn(async () => {}),
+          },
+          onChanged: {
+            addListener: vi.fn((listener) => { changeListener = listener; }),
+            removeListener: vi.fn(),
+          },
+        },
+      },
+    });
+    loadUiModules();
+    window.Echo360Translator.ui.ensurePanel({ onPrefsChanged: vi.fn() });
+    await openSettings();
+
+    const providerLabel = document.getElementById("echo360-current-provider");
+    expect(providerLabel.textContent).toBe("Google Translate");
+
+    // Simulate the options page (or popup) writing a new provider while this
+    // popover stays open — no re-open needed for the label to refresh.
+    changeListener(
+      { echo360TranslatorConfig: { newValue: { target: "ZH", provider: "deepseek" } } },
+      "local"
+    );
+
+    expect(providerLabel.textContent).toBe("DeepSeek");
+  });
+
+  it("ignores storage changes outside the local area or unrelated keys", async () => {
+    let changeListener;
+    Object.defineProperty(window, "location", {
+      value: { hostname: "echo360.org", pathname: "/lesson/test-id" },
+      configurable: true,
+      writable: true,
+    });
+    document.body.innerHTML = "";
+    document.head.innerHTML = "";
+
+    window.Echo360Translator = makeFullNs({
+      storage: {
+        getPrefs: vi.fn(async () => ({ enabled: true, size: "medium", useNativeSubtitles: true })),
+        getConfig: vi.fn(async () => ({ target: "ZH", provider: "google-web" })),
+      },
+      browserApi: {
+        storage: {
+          local: {
+            get: vi.fn(async () => ({})),
+            set: vi.fn(async () => {}),
+            remove: vi.fn(async () => {}),
+          },
+          onChanged: {
+            addListener: vi.fn((listener) => { changeListener = listener; }),
+            removeListener: vi.fn(),
+          },
+        },
+      },
+    });
+    loadUiModules();
+    window.Echo360Translator.ui.ensurePanel({ onPrefsChanged: vi.fn() });
+    await openSettings();
+
+    const providerLabel = document.getElementById("echo360-current-provider");
+    expect(providerLabel.textContent).toBe("Google Translate");
+
+    changeListener({ echo360TranslatorConfig: { newValue: { provider: "deepseek" } } }, "sync");
+    expect(providerLabel.textContent).toBe("Google Translate");
+
+    changeListener({ someOtherKey: { newValue: {} } }, "local");
+    expect(providerLabel.textContent).toBe("Google Translate");
+  });
+});

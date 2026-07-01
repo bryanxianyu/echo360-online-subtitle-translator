@@ -102,6 +102,21 @@ export function makeFullNs(overrides = {}) {
     },
     buildConfig: { buildTarget: "store", enableLocalBackend: false },
     state: { latestPageVideoSnapshot: [] },
+    // Minimal browserApi stub — enough for modules (e.g. ui_popover.js) that
+    // just register a storage.onChanged listener without exercising it.
+    browserApi: {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => {}),
+          remove: vi.fn(async () => {}),
+        },
+        onChanged: {
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+        },
+      },
+    },
     ...overrides,
   };
 }

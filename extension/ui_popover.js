@@ -1,6 +1,6 @@
 (() => {
   const ns = window.Echo360Translator;
-  const { TARGET_OPTIONS, TARGET_LABELS, DEFAULT_SUBTITLE_SIZE, PROVIDER_LABELS } = ns.constants;
+  const { TARGET_OPTIONS, TARGET_LABELS, DEFAULT_SUBTITLE_SIZE, PROVIDER_LABELS, STORAGE_KEY } = ns.constants;
 
   function openOptionsPage() {
     chrome.runtime.sendMessage({ type: "OPEN_OPTIONS_PAGE" });
@@ -100,6 +100,20 @@
       }
     }
 
+    // Reflects the currently configured provider in the read-only "翻译服务"
+    // row. Called on open, and whenever config changes elsewhere (popup /
+    // options page) so the label doesn't go stale without needing a re-open.
+    function applyProviderLabel(cfg) {
+      const providerKey = String(cfg.provider || "google-web").toLowerCase();
+      refs.currentProvider.textContent = PROVIDER_LABELS[providerKey] || cfg.provider || "未知";
+    }
+
+    ns.browserApi.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local" || !changes[STORAGE_KEY]) return;
+      const newConfig = changes[STORAGE_KEY].newValue;
+      if (newConfig) applyProviderLabel(newConfig);
+    });
+
     pop.querySelector("#echo360-open-options-btn").addEventListener("click", openOptionsPage);
     pop.querySelector("#echo360-change-provider-btn").addEventListener("click", openOptionsPage);
     refs.enabled.addEventListener("change", () => handlers.onPrefsChanged?.());
@@ -129,8 +143,7 @@
         bilingual: prefs.browserBilingual ?? (prefs.useNativeSubtitles !== false ? !!prefs.bilingual : false),
         reverseOrder: prefs.browserReverseOrder ?? (prefs.useNativeSubtitles !== false ? !!prefs.reverseOrder : false),
       };
-      const providerKey = String(cfg.provider || "google-web").toLowerCase();
-      refs.currentProvider.textContent = PROVIDER_LABELS[providerKey] || cfg.provider || "未知";
+      applyProviderLabel(cfg);
       refs.enabled.checked = !!prefs.enabled;
       refs.bilingual.checked = !!browserModePrefs.bilingual;
       refs.reverseOrder.checked = !!browserModePrefs.reverseOrder;
