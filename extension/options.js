@@ -32,7 +32,7 @@ const providerDefaults = {
   gemini: { model: "gemini-3.1-flash-lite", endpoint: "" },
   deepl: { model: "", endpoint: "" }
 };
-const keylessProviders = new Set(["google-web"]);
+const { isKeylessProvider, buildKeyMap, stashKey, resolveForSave } = window.Echo360ConfigKeys;
 
 const knownDefaultModels = new Set(Object.values(providerDefaults).map((item) => item.model).filter(Boolean));
 const providerHints = {
@@ -85,7 +85,7 @@ let localApiKeys = {};
 
 function refreshProviderUi() {
   const provider = document.getElementById("provider").value;
-  const isKeyless = keylessProviders.has(provider);
+  const isKeyless = isKeylessProvider(provider);
   const apiKeyEl = document.getElementById("apiKey");
   const modelEl = document.getElementById("model");
   const providerHint = document.getElementById("providerHint");
@@ -121,19 +121,15 @@ function refreshBuildUi() {
 async function loadConfig() {
   const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
   const config = { ...defaultConfig, ...(value || {}) };
-  // Build in-memory key map; migrate legacy single apiKey on first load.
-  localApiKeys = { ...(config.apiKeys || {}) };
+  localApiKeys = buildKeyMap(config);
   const currentProvider = providerDefaults[config.provider] ? config.provider : defaultConfig.provider;
-  if (currentProvider && config.apiKey && !localApiKeys[currentProvider]) {
-    localApiKeys[currentProvider] = config.apiKey;
-  }
   const useLocalBackendEl = document.getElementById("useLocalBackend");
   const backendUrlEl = document.getElementById("backendUrl");
   if (useLocalBackendEl) useLocalBackendEl.checked = enableLocalBackend && !!config.useLocalBackend;
   if (backendUrlEl) backendUrlEl.value = config.backendUrl;
   const apiKeyEl = document.getElementById("apiKey");
-  apiKeyEl.value = keylessProviders.has(currentProvider) ? "" : (localApiKeys[currentProvider] || "");
-  apiKeyEl.dataset.forProvider = keylessProviders.has(currentProvider) ? "" : currentProvider;
+  apiKeyEl.value = isKeylessProvider(currentProvider) ? "" : (localApiKeys[currentProvider] || "");
+  apiKeyEl.dataset.forProvider = isKeylessProvider(currentProvider) ? "" : currentProvider;
   document.getElementById("provider").value = currentProvider;
   document.getElementById("model").value = config.model;
   document.getElementById("endpoint").value = config.endpoint || "";
@@ -161,12 +157,11 @@ async function loadConfig() {
 }
 
 function applyProviderDefaults() {
-  // Save the outgoing provider's key before switching.
+  // Save the outgoing provider's key before switching, and persist it right
+  // away so it survives even if the user never clicks "保存设置".
   const apiKeyEl = document.getElementById("apiKey");
   const prevProvider = apiKeyEl.dataset.forProvider;
-  if (prevProvider && !keylessProviders.has(prevProvider)) {
-    localApiKeys[prevProvider] = apiKeyEl.value.trim();
-  }
+  stashKey(localApiKeys, prevProvider, apiKeyEl.value);
   const provider = document.getElementById("provider").value;
   const defaults = providerDefaults[provider] || providerDefaults.deepseek;
   const modelEl = document.getElementById("model");
@@ -178,7 +173,38 @@ function applyProviderDefaults() {
     endpointEl.value = defaults.endpoint;
   }
   refreshProviderUi();
+  persistApiKeysOnly();
 }
+
+// Persists only the apiKeys map (merged with whatever else is currently
+// stored) so a key typed for a provider isn't lost if the user switches
+// providers without clicking "保存设置".
+async function persistApiKeysOnly() {
+  try {
+    const { [STORAGE_KEY]: value } = await extensionApi.storage.local.get(STORAGE_KEY);
+    const merged = { ...defaultConfig, ...(value || {}), apiKeys: { ...(value?.apiKeys || {}), ...localApiKeys } };
+    await extensionApi.storage.local.set({ [STORAGE_KEY]: merged });
+  } catch (_) {
+    // Best-effort only; an explicit "保存设置" click still persists everything.
+  }
+}
+
+// Keeps the options page in sync when the popup (or another options tab)
+// changes the stored config, without clobbering a key the user is mid-typing.
+function isEditingApiKey() {
+  return document.activeElement === document.getElementById("apiKey");
+}
+
+function handleExternalConfigChange(newConfig) {
+  if (!newConfig) return;
+  localApiKeys = buildKeyMap(newConfig);
+  if (!isEditingApiKey()) refreshProviderUi();
+}
+
+extensionApi.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes[STORAGE_KEY]) return;
+  handleExternalConfigChange(changes[STORAGE_KEY].newValue);
+});
 
 function isLocalBackendUrl(url) {
   try {
@@ -202,15 +228,16 @@ async function saveConfig() {
     setTimeout(() => setStatus(""), 3000);
     return;
   }
-  const typedKey = keylessProviders.has(provider) ? "" : document.getElementById("apiKey").value.trim();
-  if (!keylessProviders.has(provider)) localApiKeys[provider] = typedKey;
+  stashKey(localApiKeys, provider, document.getElementById("apiKey").value);
+  // Merge in whatever is currently in storage in case it changed elsewhere
+  // (e.g. the popup) more recently than our own onChanged listener caught up.
+  const mergedKeys = { ...(existingValue?.apiKeys || {}), ...localApiKeys };
   const config = {
     useLocalBackend,
     backendUrl: rawBackendUrl,
-    apiKey: typedKey,
-    apiKeys: { ...(existingValue?.apiKeys || {}), ...localApiKeys },
+    ...resolveForSave(mergedKeys, provider),
     provider,
-    model: keylessProviders.has(provider) ? "" : document.getElementById("model").value.trim(),
+    model: isKeylessProvider(provider) ? "" : document.getElementById("model").value.trim(),
     endpoint: document.getElementById("endpoint").value.trim(),
     target: (document.getElementById("target").value || "ZH").toUpperCase(),
     maxParagraphs: getNumberValue("maxParagraphs", existing.maxParagraphs ?? defaultConfig.maxParagraphs, 1),
@@ -236,6 +263,13 @@ async function saveConfig() {
 }
 
 document.getElementById("provider").addEventListener("change", applyProviderDefaults);
+document.getElementById("apiKey").addEventListener("change", (event) => {
+  // Fires on blur when the value changed; persists a typed key even if the
+  // user navigates away instead of clicking "保存设置".
+  const provider = event.target.dataset.forProvider;
+  stashKey(localApiKeys, provider, event.target.value);
+  persistApiKeysOnly();
+});
 document.getElementById("saveBtn").addEventListener("click", saveConfig);
 refreshBuildUi();
 loadConfig().catch((err) => {

@@ -91,6 +91,16 @@
           return callApi(rawApi.storage.local.remove, rawApi.storage.local, [keys]);
         },
       },
+      // storage.onChanged is a plain event (not callback/promise-based) on both
+      // Chrome and Firefox, so it can be wired up directly without callApi().
+      onChanged: {
+        addListener(listener) {
+          rawApi.storage.onChanged.addListener(listener);
+        },
+        removeListener(listener) {
+          rawApi.storage.onChanged.removeListener(listener);
+        },
+      },
     },
   };
 
