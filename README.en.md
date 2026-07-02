@@ -4,13 +4,41 @@
 
 Chrome/Safari extension for loading translated subtitles on Echo360 recordings; the local FastAPI backend is kept as a development, fallback, and batch-processing path.
 
+Current extension version: **1.3.0**
+
 ## What It Does
 
-1. Finds the Echo360 VTT subtitle source for the current lecture.
+1. Finds the Echo360 VTT subtitle source for the current lecture (player CC, network capture, `transcript-file` API, etc.).
 2. Translates directly from the extension frontend by default (`direct_translator.js`); dev builds can also proxy through the local backend.
 3. If the local backend is enabled, the backend calls the bundled VTT translator script as a fallback/batch tool:
    `translator/translate_vtt_zh_deepl_native.py`
 4. Displays translated subtitles on the active Echo360 video, using either browser subtitle tracks or Echo360 native CC (Beta).
+5. **Incremental display while translating** (1.3.0): subtitles mount immediately on click; pending cues show `正在翻译中...` until each batch completes.
+6. **Per-provider API keys** with real-time sync between the popup and options page; switching providers loads the matching key automatically.
+
+## Subtitle Source Discovery
+
+`source_finder.js` tries multiple strategies in priority order and maps subtitles to the active video:
+
+- CC / `<track>` VTT already attached to the player
+- VTT URLs captured via the page probe and network layer
+- **Transcript-panel fallback** (1.2.2): when the player has no usable CC, call  
+  `/api/ui/echoplayer/lessons/{lessonId}/medias/{mediaId}/transcript-file?format=vtt`
+
+If every strategy fails, the control panel reports that no usable subtitle source was found.
+
+## Translation and Display Flow
+
+**Direct translation path** (default in store builds; dev builds when the local backend is off):
+
+1. Click `加载翻译字幕` → if mountable, subtitles appear immediately (pending cues show `正在翻译中...`).
+2. While translating → each partial VTT hot-updates completed cues; status shows `翻译中 X/Y（已开始显示）`.
+3. On completion → a final incremental refresh applies the full VTT without tearing down the renderer.
+
+**Limits:**
+
+- Incremental preview is only available on the in-extension direct path (`direct_translator.js` → background job). The local FastAPI backend still waits for the full VTT before display.
+- A local translation cache hit mounts the complete subtitles immediately (no incremental flow).
 
 ## Subtitle Rendering
 
@@ -19,12 +47,14 @@ The default path uses **browser `<track>` subtitle tracks** (`renderer.js`):
 - Single-language mode mounts the translated VTT directly.
 - Bilingual mode is built by `subtitle_strategy.js`: Safari uses a single-cue bilingual VTT; Chrome / Edge use split-cue bilingual VTT.
 
-Optional **Echo360 native CC (Beta)** (checkbox in the control panel, `bilingual_dom_renderer.js`):
+Optional **Echo360 native CC (Beta)** (checkbox in the settings popover, `bilingual_dom_renderer.js`):
 
-- Applies only in bilingual mode and tries to inject translated text into Echo360's built-in CC area.
-- Experimental and off by default; if Echo360's own CC is off, or matching fails because the page layout changes, Beta mode does not mount an extra browser subtitle track.
+- Applies only in bilingual mode and injects translated text into Echo360's built-in CC area (English on top, Chinese below).
+- Since 1.2.1, DOM matching and injection timing are improved for same-frame updates with native CC.
+- Since 1.3.0, Beta mode also supports **incremental display** via `updateTranslatedVtt()` cue hot updates.
+- Experimental and off by default; **Echo360's own CC must be enabled** and the DOM must be matchable. If injection fails, it does not automatically fall back to browser `<track>` (turn Beta off or use browser tracks manually).
 
-Display preferences (bilingual, order, size) do not require retranslation. The extension caches one translated VTT and renders client-side.
+Display preferences (bilingual, order, size) do not require retranslation. The extension caches one translated VTT and renders client-side. In Beta mode, browser-track-related prefs are forced to bilingual with non-reverse order.
 
 ## Directory Layout
 
@@ -41,22 +71,28 @@ Main extension modules:
 ```text
 build_config.js           Build target (dev/store) and local-backend switch
 browser_api.js            Chrome / Safari storage and runtime API abstraction
+config_keys.js            Shared per-provider API key logic for popup/options
 constants.js              Shared defaults and option lists
-vtt.js                    Pure VTT parsing, formatting, and bilingual helpers
+vtt.js                    Pure VTT parsing, formatting, bilingual, and incremental preview helpers
 subtitle_strategy.js      Browser detection and bilingual VTT build strategy
 storage.js                Config, prefs, and local subtitle cache
 video.js                  Echo360 video discovery, media-id hints, and page-probe bridge
-source_finder.js          Subtitle source discovery and subtitle-to-video matching
+source_finder.js          Subtitle source discovery (incl. transcript-file API) and video matching
 bilingual_dom_renderer.js Echo360 native CC DOM bilingual injection (Beta)
-renderer.js               Browser subtitle track lifecycle and cue styling
-direct_translator.js      In-extension direct translation (default store path)
-ui.js                     Floating control panel and status updates
-backend_client.js         Backend proxy, direct job polling, and error messages
+renderer.js               Browser track / Beta DOM render orchestration and cue styling
+direct_translator.js      In-extension direct translation and partial VTT callbacks (default store path)
+ui.js                     In-page UI facade (ball / panel / popover / onboarding)
+ui_ball.js                Bottom-right dock ball entry point
+ui_panel.js               Slide-out translation panel
+ui_popover.js             Display and render preference popover
+ui_onboarding.js          First-run onboarding bubble
+ui_styles.js / ui_theme.js In-page UI styles and light/dark theming
+backend_client.js         Backend proxy, direct job polling (incl. partial_vtt), and error messages
 translation_service.js    Payload construction, cache keys, and translation orchestration
-controller.js             Translation use-case orchestration
+controller.js             Translation orchestration (incl. incremental preview mounting)
 content.js                Content-script entrypoint
 page_probe.js             MAIN-world Echo360/React/XHR probe
-background.js             Service worker
+background.js             Service worker (direct jobs and partial_vtt storage)
 popup.js / options.js     Extension popup and options page
 ```
 
@@ -107,7 +143,7 @@ Invoke-WebRequest http://127.0.0.1:8765/health
 3. Click `Load unpacked`.
 4. Select the `extension/` directory in this repository.
 
-On an Echo360 classroom page, the floating control panel appears at the bottom right. You can also configure the provider and API key from the extension popup (`popup.html`) or options page (`options.html`). Use `加载翻译字幕` for normal loading and `重新翻译` to clear the current cache and rerun translation.
+On an Echo360 classroom page, a **dock ball** appears at the bottom right; click it to open the slide-out translation panel, and use the gear button for the display/render popover. First-time installs see a one-time onboarding bubble. You can also configure the provider and API key from the extension popup (`popup.html`) or options page (`options.html`); keys are stored per provider and switch automatically when you change provider. Use `加载翻译字幕` for normal loading and `重新翻译` to clear the current cache and rerun translation.
 
 ## Release Builds
 
@@ -235,3 +271,5 @@ The extension keeps one local translated VTT cache entry. Bilingual display is r
 - `page_probe.js` is still injected in the page context to read Echo360/React video UUID hints for better subtitle-to-video mapping.
 - Detailed network body capture in the probe is disabled by default.
 - If a separated intro clip exists, the extension prefers strong media-id mapping first and timeline/state matching as fallback.
+- Transcript-panel-only lessons without player CC rely on the `transcript-file` API (1.2.2); Beta DOM mode cannot work on those pages (no native CC DOM to inject into).
+- Incremental preview partial VTT is emitted per batch by `direct_translator.js`, polled via `background.js` jobs; `buildIncrementalPreviewVtt()` replaces untranslated cues with placeholder text.

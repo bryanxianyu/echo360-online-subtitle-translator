@@ -244,7 +244,7 @@ describe("translateWithConfig (store build)", () => {
       { isActive, onProgress }
     );
 
-    expect(backendClientMock.waitDirectJob).toHaveBeenCalledWith("job-99", { isActive, onProgress });
+    expect(backendClientMock.waitDirectJob).toHaveBeenCalledWith("job-99", { isActive, onProgress, onPartialVtt: expect.any(Function) });
   });
 });
 

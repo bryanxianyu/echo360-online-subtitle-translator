@@ -28,6 +28,7 @@
  *   P10 native CC injector does not expose fallback debug state
  *   P11 native CC injector stays quiet when injection fails
  *   P12 setVisible(false) prevents native injection
+ *   P17 updateTranslatedVtt refreshes cue translations without remounting
  */
 
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from "vitest";
@@ -250,6 +251,49 @@ describe("DOM injection via native caption double", () => {
     renderer.unmount();
     expect(span.hasAttribute("data-echo360-translated-line")).toBe(false);
     expect(span.hasAttribute("data-echo360-translation")).toBe(false);
+  });
+
+  it("P17: updateTranslatedVtt refreshes pending translation text without remounting", () => {
+    const pendingVtt = `WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+正在翻译中...
+
+00:00:02.500 --> 00:00:04.500
+正在翻译中...
+
+00:00:05.000 --> 00:00:07.000
+正在翻译中...
+
+`;
+    const partialTransVtt = `WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+你好世界
+
+00:00:02.500 --> 00:00:04.500
+正在翻译中...
+
+00:00:05.000 --> 00:00:07.000
+正在翻译中...
+
+`;
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: pendingVtt, size: "medium" });
+    const span = addCaptionSpan(player, "Hello world");
+    mockNow = 800;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("正在翻译中...");
+
+    expect(renderer.updateTranslatedVtt({ originalVtt: ORIG_VTT, translatedVtt: partialTransVtt })).toBe(true);
+    expect(renderer.isMounted()).toBe(true);
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+  });
+
+  it("P18: updateTranslatedVtt returns false when renderer is not mounted", () => {
+    expect(renderer.updateTranslatedVtt({ originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT })).toBe(false);
   });
 
   it("P13: retries on the very next trigger with no fixed polling delay", () => {

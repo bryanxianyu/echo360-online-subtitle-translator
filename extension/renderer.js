@@ -267,8 +267,10 @@
     size = DEFAULT_SUBTITLE_SIZE,
     reverseOrder = false,
     sourceMeta = null,
-    useNativeSubtitles = true
+    useNativeSubtitles = true,
+    renderOptions = {}
   ) {
+    const incremental = !!renderOptions.incremental;
     const resolvedSourceMeta = sourceMeta || ns.sourceFinder.buildSourceMeta("", originalVtt);
     const video = ns.sourceFinder.pickBestMountVideoByVtt(originalVtt, resolvedSourceMeta);
     if (!video) {
@@ -284,9 +286,14 @@
       return false;
     }
     const backendLooksBilingual = ns.vtt.isAlreadyBilingualVtt(translatedVtt, originalVtt);
-    const normalizedTranslated = backendLooksBilingual
+    let normalizedTranslated = backendLooksBilingual
       ? ns.vtt.extractPrimaryTranslatedVtt(ns.vtt.normalizeBilingualOrderZhFirst(translatedVtt))
       : translatedVtt;
+    if (renderOptions.previewPending) {
+      normalizedTranslated = ns.vtt.buildIncrementalPreviewVtt(normalizedTranslated, originalVtt, {
+        placeholder: renderOptions.pendingLabel || "正在翻译中...",
+      });
+    }
     const rawPayload = bilingual
       ? ns.subtitleStrategy.buildBilingualVtt({
         translatedVtt: normalizedTranslated,
@@ -306,8 +313,26 @@
     };
     lastRenderSourceMeta = resolvedSourceMeta;
 
-    deactivateTranslatedRenderers();
-    if (bilingual && !useNativeSubtitles) {
+    const betaDomMode = bilingual && !useNativeSubtitles;
+    if (!incremental) {
+      deactivateTranslatedRenderers();
+    } else if (ns.bilingualDomRenderer?.isMounted() && !betaDomMode) {
+      ns.bilingualDomRenderer.unmount();
+    }
+
+    if (betaDomMode) {
+      if (incremental && ns.bilingualDomRenderer?.isMounted()) {
+        if (ns.bilingualDomRenderer.updateTranslatedVtt({
+          originalVtt,
+          translatedVtt: normalizedTranslated,
+          size,
+          reverseOrder,
+        })) {
+          lastTranslatedTrack = { mode: "bilingual-dom" };
+          return true;
+        }
+        return false;
+      }
       removeTranslatedTrackElements();
       if (ns.bilingualDomRenderer?.mount({
         video,
@@ -323,7 +348,7 @@
     }
     const nativeState = getOrCreateNativeTrack(video);
     const payloadChanged = nativeState.payload !== payload || !nativeState.track.getAttribute("src");
-    if (payloadChanged && nativeState.track.isConnected) {
+    if (payloadChanged && nativeState.track.isConnected && !incremental) {
       nativeState.track.remove();
       nativeState.track = document.createElement("track");
     }
@@ -349,17 +374,19 @@
       track.default = true;
       video.appendChild(track);
     }
-    const mountedVideoHintIds = Array.from(ns.video.getVideoHintMediaIds(video));
-    console.log("[echo360-translator] mounted translated track:", {
-      sourceId: resolvedSourceMeta.sourceId,
-      mediaId: resolvedSourceMeta.mediaId,
-      mapSource: resolvedSourceMeta.mapSource || "",
-      sourceMaxEnd: Math.round(resolvedSourceMeta.stats?.maxEnd || 0),
-      videoDuration: Math.round(Number(video.duration || 0)),
-      videoCurrentTime: Number(video.currentTime || 0).toFixed(2),
-      videoHintMatch: resolvedSourceMeta.mediaId ? mountedVideoHintIds.includes(resolvedSourceMeta.mediaId) : false,
-      videoHintIds: mountedVideoHintIds.slice(0, 12),
-    });
+    if (!incremental) {
+      const mountedVideoHintIds = Array.from(ns.video.getVideoHintMediaIds(video));
+      console.log("[echo360-translator] mounted translated track:", {
+        sourceId: resolvedSourceMeta.sourceId,
+        mediaId: resolvedSourceMeta.mediaId,
+        mapSource: resolvedSourceMeta.mapSource || "",
+        sourceMaxEnd: Math.round(resolvedSourceMeta.stats?.maxEnd || 0),
+        videoDuration: Math.round(Number(video.duration || 0)),
+        videoCurrentTime: Number(video.currentTime || 0).toFixed(2),
+        videoHintMatch: resolvedSourceMeta.mediaId ? mountedVideoHintIds.includes(resolvedSourceMeta.mediaId) : false,
+        videoHintIds: mountedVideoHintIds.slice(0, 12),
+      });
+    }
     lastTranslatedTrack = track;
     if (track.track) track.track.mode = "showing";
     setTimeout(() => {

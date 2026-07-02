@@ -71,12 +71,17 @@
   async function waitDirectJob(jobId, options = {}) {
     const maxMs = 8 * 60 * 1000;
     const start = Date.now();
+    let lastPartialVtt = "";
     while (Date.now() - start < maxMs) {
       if (options.isActive && !options.isActive()) {
         throw new Error("stale job");
       }
       const job = await readDirectTranslateJob(jobId);
       const p = job.progress || { current: 0, total: 0 };
+      if (job.partial_vtt && job.partial_vtt !== lastPartialVtt) {
+        lastPartialVtt = job.partial_vtt;
+        options.onPartialVtt?.(job.partial_vtt, p);
+      }
       if (job.status === "running" && p.total > 0) {
         options.onProgress?.(p.current, p.total);
       }

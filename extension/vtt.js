@@ -164,6 +164,24 @@
       .join("\n");
   }
 
+  function buildIncrementalPreviewVtt(partialVtt, originalVtt, options = {}) {
+    const placeholder = options.placeholder || "正在翻译中...";
+    const trans = parseVttBlocks(partialVtt);
+    const orig = parseVttBlocks(originalVtt);
+    const n = Math.min(trans.length, orig.length);
+    const lines = ["WEBVTT", ""];
+    for (let i = 0; i < n; i += 1) {
+      const origText = cueTextToLine(orig[i].text);
+      const transText = cueTextToLine(trans[i].text);
+      const pending = !transText || normalizeCueText(transText) === normalizeCueText(origText);
+      lines.push(String(i + 1));
+      lines.push(trans[i].time);
+      lines.push(pending ? placeholder : trans[i].text);
+      lines.push("");
+    }
+    return lines.join("\n");
+  }
+
   ns.vtt = {
     formatVttTime,
     cueTextToLine,
@@ -173,5 +191,6 @@
     normalizeBilingualOrderZhFirst,
     extractPrimaryTranslatedVtt,
     applyCueBottom,
+    buildIncrementalPreviewVtt,
   };
 })();

@@ -472,3 +472,40 @@ describe("applyCueBottom", () => {
     expect(timing).toMatch(/line:97\.2% position:50% align:middle$/);
   });
 });
+
+describe("buildIncrementalPreviewVtt", () => {
+  const ORIG = `WEBVTT
+
+1
+00:00:00.000 --> 00:00:02.000
+Hello
+
+2
+00:00:02.000 --> 00:00:04.000
+World
+
+`;
+
+  it("replaces cues that still match the original text with the pending label", () => {
+    const partial = `WEBVTT
+
+1
+00:00:00.000 --> 00:00:02.000
+你好
+
+2
+00:00:02.000 --> 00:00:04.000
+World
+
+`;
+    const preview = vtt.buildIncrementalPreviewVtt(partial, ORIG);
+    expect(preview).toContain("你好");
+    expect(preview).toContain("正在翻译中...");
+    expect(preview).not.toContain("World\n");
+  });
+
+  it("supports a custom pending label", () => {
+    const preview = vtt.buildIncrementalPreviewVtt(ORIG, ORIG, { placeholder: "Translating..." });
+    expect(preview).toContain("Translating...");
+  });
+});

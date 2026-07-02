@@ -118,7 +118,7 @@
         );
         loadedCacheKey = cacheEntry.cacheKey || "";
         if (mounted) {
-          ns.ui.updateActionButtons("翻译字幕已加载 (缓存)");
+          ns.ui.updateActionButtons("翻译字幕已加载");
           ns.ui.setStatusText("命中本地缓存");
         } else {
           ns.ui.updateActionButtons("翻译已就绪");
@@ -129,12 +129,48 @@
 
       const backendUrl = (cfg.backendUrl || "http://127.0.0.1:8765").replace(/\/+$/, "");
       const payload = ns.translationService.buildTranslatePayload(cfg, vttText, forceRefresh);
+      let incrementalPreviewMounted = false;
+
+      const mountTranslationPreview = (partialVtt, incremental = false) => {
+        const mounted = ns.renderer.renderTranslatedTrack(
+          partialVtt,
+          vttText,
+          prefs.bilingual,
+          prefs.size,
+          prefs.reverseOrder,
+          sourceMeta,
+          prefs.useNativeSubtitles,
+          { incremental, previewPending: true }
+        );
+        if (!mounted) return false;
+        incrementalPreviewMounted = true;
+        ns.renderer.applySubtitleVisibility(prefs.enabled);
+        return true;
+      };
+
+      if (mountTranslationPreview(vttText, false)) {
+        ns.ui.updateActionButtons("翻译中...", true);
+        ns.ui.setStatusText("翻译中...（已开始显示）");
+      }
+
       const result = await ns.translationService.translateWithConfig(cfg, backendUrl, payload, {
         isActive: () => activeRunId === runId,
         onProgress: (current, total) => {
-          const tip = `翻译中 ${current}/${total}`;
+          const tip = incrementalPreviewMounted
+            ? `翻译中 ${current}/${total}（已开始显示）`
+            : `翻译中 ${current}/${total}`;
           ns.ui.updateActionButtons(tip, true);
           ns.ui.setStatusText(tip);
+        },
+        onPartialVtt: (partialVtt, progress) => {
+          if (!mountTranslationPreview(partialVtt, true)) return;
+          const current = Number(progress?.current || 0);
+          const total = Number(progress?.total || 0);
+          if (total > 0) {
+            const tip = `翻译中 ${current}/${total}（已开始显示）`;
+            ns.ui.updateActionButtons(tip, true);
+            ns.ui.setStatusText(tip);
+          }
         },
         onSyncFallback: () => {
           ns.ui.setStatusText("后端不支持异步进度接口，回退到同步翻译...");
@@ -157,7 +193,8 @@
         prefs.size,
         prefs.reverseOrder,
         sourceMeta,
-        prefs.useNativeSubtitles
+        prefs.useNativeSubtitles,
+        { incremental: incrementalPreviewMounted }
       );
       loadedCacheKey = cacheKey;
       await ns.storage.setCacheStore({

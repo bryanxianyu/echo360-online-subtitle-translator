@@ -223,4 +223,36 @@ describe("formatJobError (via waitDirectJob)", () => {
     await client.waitDirectJob("job-1", { isActive: () => true, onProgress });
     expect(onProgress).toHaveBeenCalledWith(3, 10);
   });
+
+  it("calls onPartialVtt when partial_vtt changes during polling", async () => {
+    const onPartialVtt = vi.fn();
+    let calls = 0;
+    globalThis.chrome.runtime.sendMessage.mockImplementation((msg, cb) => {
+      calls += 1;
+      if (calls === 1) {
+        cb({
+          ok: true,
+          data: {
+            status: "running",
+            partial_vtt: "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nPartial\n",
+            progress: { current: 1, total: 10, partial: true },
+          },
+        });
+      } else {
+        cb({
+          ok: true,
+          data: {
+            status: "completed",
+            result: { translated_vtt: "WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nDone\n", warnings: [], cache_hit: false },
+            progress: { current: 10, total: 10 },
+          },
+        });
+      }
+    });
+    await client.waitDirectJob("job-1", { isActive: () => true, onPartialVtt });
+    expect(onPartialVtt).toHaveBeenCalledWith(
+      "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nPartial\n",
+      expect.objectContaining({ current: 1, total: 10 })
+    );
+  });
 });

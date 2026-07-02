@@ -118,6 +118,7 @@ function createDirectJob(payload) {
   const job = {
     status: "running",
     progress: { current: 0, total: 0 },
+    partial_vtt: "",
     result: null,
     error: "",
     createdAt: Date.now(),
@@ -137,9 +138,21 @@ function createDirectJob(payload) {
           return;
         }
       }
-      const result = await Echo360DirectTranslator.translateVtt(payload, (current, total, line = "") => {
-        job.progress = { current, total, line };
-        job.updatedAt = Date.now();
+      const result = await Echo360DirectTranslator.translateVtt(payload, {
+        onProgress: (current, total, line = "") => {
+          job.progress = { current, total, line };
+          job.updatedAt = Date.now();
+        },
+        onPartialVtt: (partialVtt, meta = {}) => {
+          job.partial_vtt = partialVtt;
+          job.progress = {
+            current: Number(meta.completed || job.progress?.current || 0),
+            total: Number(meta.total || job.progress?.total || 0),
+            line: job.progress?.line || "",
+            partial: !meta.done,
+          };
+          job.updatedAt = Date.now();
+        },
       });
       job.status = "completed";
       job.result = { ...result, cache_hit: false };

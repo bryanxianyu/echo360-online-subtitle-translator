@@ -4,13 +4,41 @@
 
 用于 Echo360 录播课的 Chrome/Safari 扩展，用来加载并显示翻译字幕；本地 FastAPI 后端保留为开发调试、fallback 和批处理路径。
 
+当前扩展版本：**1.3.0**
+
 ## 功能概览
 
-1. 在当前 Echo360 录播课页面中寻找 VTT 字幕源。
+1. 在当前 Echo360 录播课页面中寻找 VTT 字幕源（播放器 CC、网络抓取、`transcript-file` API 等）。
 2. 默认通过扩展前端直连翻译服务（`direct_translator.js`）；dev 构建也可以发送到本地后端。
 3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本作为 fallback/批处理工具：
    `translator/translate_vtt_zh_deepl_native.py`
 4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上，支持浏览器字幕轨或 Echo360 原生 CC（Beta）两种渲染方式。
+5. **边翻译边显示**（1.3.0）：点击翻译后立即挂载字幕，未完成的 cue 显示 `正在翻译中...`，随批次完成逐步替换为译文。
+6. **按 provider 分别保存 API Key**；popup 与 options 页实时同步，切换 provider 时自动带出对应 Key。
+
+## 字幕源发现
+
+`source_finder.js` 会按优先级尝试多种来源，并把字幕与当前视频匹配：
+
+- 播放器已挂载的 CC / `<track>` VTT
+- 页面探针与网络层抓到的 VTT URL
+- **Transcript 面板专用路径**（1.2.2）：当播放器没有可用 CC 时，调用  
+  `/api/ui/echoplayer/lessons/{lessonId}/medias/{mediaId}/transcript-file?format=vtt`
+
+若所有策略都失败，控制面板会提示「未找到可用字幕源」。
+
+## 翻译与显示流程
+
+**直连翻译路径**（store 构建默认、dev 未开本地后端时）：
+
+1. 点击 `加载翻译字幕` → 若可挂载，立刻显示字幕（未完成 cue 为 `正在翻译中...`）。
+2. 翻译进行中 → 每批 partial VTT 热更新已译 cue；状态栏显示 `翻译中 X/Y（已开始显示）`。
+3. 全部完成 → 用最终 VTT 做一次增量收尾，无需重新挂载。
+
+**限制：**
+
+- 增量预览目前仅支持扩展内直连翻译（`direct_translator.js` → background job）；本地 FastAPI 后端路径仍等整份 VTT 返回后再显示。
+- 命中本地翻译缓存时直接显示完整字幕，不会走增量流程。
 
 ## 字幕渲染方式
 
@@ -19,12 +47,14 @@
 - 单语模式直接挂载翻译 VTT。
 - 双语模式由 `subtitle_strategy.js` 按浏览器选择策略：Safari 使用单 cue 双语 VTT，Chrome / Edge 等使用分 cue 双语 VTT。
 
-可选开启 **Echo360 原生 CC（Beta）**（控制面板勾选，`bilingual_dom_renderer.js`）：
+可选开启 **Echo360 原生 CC（Beta）**（设置 popover 勾选，`bilingual_dom_renderer.js`）：
 
-- 仅在双语模式下生效，尝试把译文注入 Echo360 播放器自带 CC 区域。
-- 实验功能，默认关闭；若播放器未开启 Echo360 原声 CC，或页面结构变化导致匹配失败，Beta 模式不会额外挂载浏览器字幕轨。
+- 仅在双语模式下生效，尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下）。
+- 1.2.1 起改进了 DOM 匹配与注入时序，尽量与 Echo360 原生 CC 同帧更新。
+- 1.3.0 起 Beta 模式同样支持**边翻译边显示**：通过 `updateTranslatedVtt()` 热更新 cue，无需等整份 VTT。
+- 实验功能，默认关闭；**需要 Echo360 播放器已开启原生 CC** 且页面 DOM 可匹配。若注入失败，不会自动回退到浏览器 `<track>`（请关闭 Beta 或手动改用浏览器字幕轨）。
 
-切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。
+切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。Beta 模式下「浏览器字幕轨」相关选项会被强制为双语、非 reverse 顺序。
 
 ## 目录结构
 
@@ -41,22 +71,28 @@ tests/        Vitest 单元测试（覆盖 extension 核心逻辑）
 ```text
 build_config.js           构建目标（dev/store）与本地后端开关
 browser_api.js            Chrome / Safari storage 与 runtime API 抽象
+config_keys.js            popup/options 共用的 per-provider API Key 逻辑
 constants.js              共享默认值和选项列表
-vtt.js                    纯 VTT 解析、格式化、双语字幕工具
+vtt.js                    纯 VTT 解析、格式化、双语与增量预览工具
 subtitle_strategy.js      浏览器检测与双语 VTT 构建策略
 storage.js                配置、偏好和本地字幕缓存
 video.js                  Echo360 视频发现、media-id 线索和页面探针桥接
-source_finder.js          字幕源发现和字幕到视频的匹配
+source_finder.js          字幕源发现（含 transcript-file API）和字幕到视频匹配
 bilingual_dom_renderer.js Echo360 原生 CC DOM 双语注入（Beta）
-renderer.js               浏览器字幕 track 生命周期和 cue 样式
-direct_translator.js      扩展内直连翻译（store 构建默认路径）
-ui.js                     页面浮动控制面板和状态更新
-backend_client.js         后端代理、直连任务轮询和错误消息
+renderer.js               浏览器字幕 track / Beta DOM 渲染编排与 cue 样式
+direct_translator.js      扩展内直连翻译与 partial VTT 回调（store 默认路径）
+ui.js                     页面 UI 门面（组装 ball / panel / popover / onboarding）
+ui_ball.js                右下角收纳球入口
+ui_panel.js               滑出式翻译面板
+ui_popover.js             显示与渲染偏好 popover
+ui_onboarding.js          首次安装引导气泡
+ui_styles.js / ui_theme.js 页面 UI 样式与浅色/深色主题
+backend_client.js         后端代理、直连任务轮询（含 partial_vtt）和错误消息
 translation_service.js    payload 构造、缓存键与翻译编排
-controller.js             翻译用例编排
+controller.js             翻译用例编排（含增量预览挂载）
 content.js                content script 入口
 page_probe.js             MAIN world 的 Echo360/React/XHR 探针
-background.js             service worker
+background.js             service worker（直连翻译 job 与 partial_vtt 存储）
 popup.js / options.js     扩展弹窗与选项页
 ```
 
@@ -107,7 +143,7 @@ Invoke-WebRequest http://127.0.0.1:8765/health
 3. 点击 `加载已解压的扩展程序`。
 4. 选择当前仓库下的 `extension/` 目录。
 
-进入 Echo360 classroom 页面后，右下角会出现浮动控制面板；也可通过扩展图标弹窗（`popup.html`）或选项页（`options.html`）配置 provider 与 API Key。正常使用点击 `加载翻译字幕`；如果需要清除当前缓存并重新翻译，点击 `重新翻译`。
+进入 Echo360 classroom 页面后，右下角会出现**收纳球**；点击展开滑出式翻译面板，齿轮按钮打开显示/渲染偏好 popover。首次安装会显示一次性引导气泡。也可通过扩展图标弹窗（`popup.html`）或选项页（`options.html`）配置 provider 与 API Key（各 provider 的 Key 分别保存，切换 provider 时自动切换）。正常使用点击 `加载翻译字幕`；如果需要清除当前缓存并重新翻译，点击 `重新翻译`。
 
 ## 发布构建
 
@@ -235,3 +271,5 @@ export TRANSLATOR_PYTHON_BIN=/absolute/path/to/python
 - `page_probe.js` 会注入页面上下文，用于读取 Echo360/React 视频 UUID 线索，从而提高字幕和视频匹配的准确性。
 - 探针默认不抓取详细网络请求 body。
 - 如果录播存在独立开场片段，扩展会优先使用强 media-id 映射，其次使用 timeline/state 兜底匹配。
+- 仅 Transcript 面板、无播放器 CC 的课时依赖 `transcript-file` API（1.2.2）；这类页面无法使用 Beta DOM 模式（没有 Echo360 原生 CC DOM 可注入）。
+- 增量预览的 partial VTT 由 `direct_translator.js` 每批产出并经 `background.js` job 轮询；`buildIncrementalPreviewVtt()` 负责把未译 cue 替换为占位文案。

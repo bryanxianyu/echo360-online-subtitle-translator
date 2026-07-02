@@ -30,7 +30,13 @@ function setupRenderer({ domMountResult = true, buildBilingualVtt } = {}) {
   });
   document.body.appendChild(video);
 
-  const domMount = vi.fn(() => domMountResult);
+  let domMounted = false;
+  const domMount = vi.fn(() => {
+    if (!domMountResult) return false;
+    domMounted = true;
+    return true;
+  });
+  const domUpdate = vi.fn(() => domMounted);
   window.Echo360Translator = makeFullNs({
     video: {
       getAllVideos: () => [video],
@@ -52,8 +58,11 @@ function setupRenderer({ domMountResult = true, buildBilingualVtt } = {}) {
     },
     bilingualDomRenderer: {
       mount: domMount,
-      unmount: vi.fn(),
-      isMounted: () => false,
+      updateTranslatedVtt: domUpdate,
+      unmount: vi.fn(() => {
+        domMounted = false;
+      }),
+      isMounted: () => domMounted,
       ensureMounted: vi.fn(),
       setVisible: vi.fn(),
       applySize: vi.fn(),
@@ -63,7 +72,7 @@ function setupRenderer({ domMountResult = true, buildBilingualVtt } = {}) {
     },
   });
   evalModule("renderer.js");
-  return { renderer: window.Echo360Translator.renderer, video, domMount };
+  return { renderer: window.Echo360Translator.renderer, video, domMount, domUpdate };
 }
 
 describe("renderer Echo360 native CC beta mode", () => {
@@ -104,6 +113,24 @@ describe("renderer Echo360 native CC beta mode", () => {
     expect(domMount).toHaveBeenCalledOnce();
     expect(video.querySelectorAll("track").length).toBe(0);
   });
+
+  it("updates the DOM renderer in place during incremental beta preview refreshes", () => {
+    const partialVtt = `WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Partial
+
+`;
+    const { renderer, domMount, domUpdate } = setupRenderer({ domMountResult: true });
+
+    expect(renderer.renderTranslatedTrack(partialVtt, ORIG_VTT, true, "medium", false, null, false)).toBe(true);
+    expect(domMount).toHaveBeenCalledOnce();
+    expect(domUpdate).not.toHaveBeenCalled();
+
+    expect(renderer.renderTranslatedTrack(TRANS_VTT, ORIG_VTT, true, "medium", false, null, false, { incremental: true })).toBe(true);
+    expect(domMount).toHaveBeenCalledOnce();
+    expect(domUpdate).toHaveBeenCalledOnce();
+  });
 });
 
 describe("renderer browser track mode", () => {
@@ -138,6 +165,28 @@ describe("renderer browser track mode", () => {
     expect(firstTrack).not.toBeNull();
     expect(secondTrack).not.toBeNull();
     expect(secondTrack).not.toBe(firstTrack);
+    expect(secondSrc).not.toBe(firstSrc);
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
+  });
+
+  it("updates the same browser track element during incremental preview refreshes", () => {
+    const partialVtt = `WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Partial
+
+`;
+    const { renderer, video } = setupRenderer();
+
+    expect(renderer.renderTranslatedTrack(partialVtt, ORIG_VTT, false, "medium", false, null, true)).toBe(true);
+    const firstTrack = video.querySelector('track[data-echo360-translated="1"]');
+    const firstSrc = firstTrack?.getAttribute("src");
+
+    expect(renderer.renderTranslatedTrack(TRANS_VTT, ORIG_VTT, false, "medium", false, null, true, { incremental: true })).toBe(true);
+    const secondTrack = video.querySelector('track[data-echo360-translated="1"]');
+    const secondSrc = secondTrack?.getAttribute("src");
+
+    expect(secondTrack).toBe(firstTrack);
     expect(secondSrc).not.toBe(firstSrc);
     expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
   });
