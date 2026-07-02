@@ -331,6 +331,24 @@
     });
   }
 
+  function updateTranslatedVtt({ originalVtt, translatedVtt, size, reverseOrder }) {
+    if (!state) return false;
+    const cues = buildCues(originalVtt, translatedVtt);
+    if (cues.length === 0) return false;
+    state.cues = cues;
+    if (size && SIZE_RATIO[size]) state.size = size;
+    if (reverseOrder !== undefined) state.reverseOrder = !!reverseOrder;
+    state.lastCueIndex = -2;
+    state.nativeInjectedCueIndex = -2;
+    state.nativeSearchExhausted = false;
+    state.nativeAnchor = null;
+    state.nativeAnchorDebug = null;
+    clearInjectedLines();
+    renderCurrentCue();
+    publishDebugState();
+    return true;
+  }
+
   function mount({ video, originalVtt, translatedVtt, size, reverseOrder }) {
     const player = findPlayer(video);
     const cues = buildCues(originalVtt, translatedVtt);
@@ -444,6 +462,7 @@
 
   ns.bilingualDomRenderer = {
     mount,
+    updateTranslatedVtt,
     unmount,
     setVisible,
     applySize,

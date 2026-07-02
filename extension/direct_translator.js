@@ -538,7 +538,27 @@ globalThis.Echo360DirectTranslator = (() => {
     throw lastErr;
   }
 
-  async function translateVtt(payload, onProgress = () => {}) {
+  async function translateVtt(payload, progressHandler = {}) {
+    const handlers = typeof progressHandler === "function"
+      ? { onProgress: progressHandler }
+      : (progressHandler || {});
+    const onProgress = handlers.onProgress || (() => {});
+    const onPartialVtt = handlers.onPartialVtt || (() => {});
+    const partialEmitIntervalMs = Math.max(0, Number(handlers.partialEmitIntervalMs) || 400);
+    let lastPartialEmitAt = 0;
+
+    function emitPartialVtt(force = false) {
+      if (!onPartialVtt) return;
+      const now = Date.now();
+      if (!force && partialEmitIntervalMs > 0 && now - lastPartialEmitAt < partialEmitIntervalMs) return;
+      lastPartialEmitAt = now;
+      onPartialVtt(translatedLines.join("\n"), {
+        completed,
+        total: items.length,
+        done: !!force,
+      });
+    }
+
     const cfg = {
       ...payload,
       provider: normalizeProvider(payload.provider),
@@ -581,6 +601,7 @@ globalThis.Echo360DirectTranslator = (() => {
       });
       completed += batch.length;
       reportProgress();
+      emitPartialVtt(false);
     }
 
     function keepOriginalBatch(batch) {
@@ -589,6 +610,7 @@ globalThis.Echo360DirectTranslator = (() => {
       });
       completed += batch.length;
       reportProgress();
+      emitPartialVtt(false);
     }
 
     async function worker() {
@@ -671,6 +693,7 @@ globalThis.Echo360DirectTranslator = (() => {
       const firstWarning = warnings[0] ? `; first warning: ${warnings[0]}` : "";
       throw new Error(`Provider did not return Chinese subtitles${firstWarning}`);
     }
+    emitPartialVtt(true);
     return { translated_vtt: translatedVtt, warnings, cache_hit: false };
   }
 

@@ -108,6 +108,7 @@
     return await ns.backendClient.waitDirectJob(create.job_id, {
       isActive: options.isActive || (() => true),
       onProgress: options.onProgress || (() => {}),
+      onPartialVtt: options.onPartialVtt || (() => {}),
     });
   }
 
