@@ -334,17 +334,32 @@
         return false;
       }
       removeTranslatedTrackElements();
-      if (ns.bilingualDomRenderer?.mount({
+      const mounted = ns.bilingualDomRenderer?.mount({
         video,
         originalVtt,
         translatedVtt: normalizedTranslated,
         size,
         reverseOrder,
-      })) {
+        onNoCaptionCapability: () => {
+          // Fires once, mid-playback, if the per-cue grace period expires
+          // and this lesson turns out to have no native CC at all. Re-render
+          // as a browser <track> for the rest of this session without
+          // touching the saved preference — a different lesson may still
+          // have native CC, so Beta should still be tried again there.
+          console.info("[echo360-translator] no Echo360 native CC on this video; falling back to browser subtitle track");
+          ns.ui?.setStatusText("此课程无 Echo360 原生字幕位，已自动切换为浏览器字幕");
+          renderTranslatedTrack(translatedVtt, originalVtt, bilingual, size, reverseOrder, resolvedSourceMeta, true, renderOptions);
+        },
+      });
+      if (mounted) {
         lastTranslatedTrack = { mode: "bilingual-dom" };
         return true;
       }
-      return false;
+      // mount() refused synchronously — most commonly because the
+      // capability pre-check already found no native CC track for this
+      // video. Fall back to the browser <track> renderer immediately
+      // instead of leaving the user with no subtitles at all.
+      return renderTranslatedTrack(translatedVtt, originalVtt, bilingual, size, reverseOrder, resolvedSourceMeta, true, renderOptions);
     }
     const nativeState = getOrCreateNativeTrack(video);
     const payloadChanged = nativeState.payload !== payload || !nativeState.track.getAttribute("src");

@@ -4,7 +4,7 @@
 
 用于 Echo360 录播课的 Chrome/Safari 扩展，用来加载并显示翻译字幕；本地 FastAPI 后端保留为开发调试、fallback 和批处理路径。
 
-当前扩展版本：**1.3.0**
+当前扩展版本：**1.4.3**
 
 ## 功能概览
 
@@ -12,7 +12,7 @@
 2. 默认通过扩展前端直连翻译服务（`direct_translator.js`）；dev 构建也可以发送到本地后端。
 3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本作为 fallback/批处理工具：
    `translator/translate_vtt_zh_deepl_native.py`
-4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上，支持浏览器字幕轨或 Echo360 原生 CC（Beta）两种渲染方式。
+4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；默认优先注入 Echo360 原生 CC（Beta），本课程没有原生字幕位时自动回退到浏览器 `<track>` 字幕轨。
 5. **边翻译边显示**（1.3.0）：点击翻译后立即挂载字幕，未完成的 cue 显示 `正在翻译中...`，随批次完成逐步替换为译文。
 6. **按 provider 分别保存 API Key**；popup 与 options 页实时同步，切换 provider 时自动带出对应 Key。
 
@@ -42,19 +42,26 @@
 
 ## 字幕渲染方式
 
-默认使用 **浏览器 `<track>` 字幕轨**（`renderer.js`）：
+默认策略（1.4.0 起）是 **Beta 优先、浏览器字幕轨兜底**（`renderer.js` + `bilingual_dom_renderer.js`）：
+
+1. 尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下），外观与原生字幕一致。
+   - 1.2.1 起改进了 DOM 匹配与注入时序，可与 Echo360 原生 CC 同帧更新。
+   - 1.3.0 起同样支持**边翻译边显示**：通过 `updateTranslatedVtt()` 热更新 cue，无需等整份 VTT。
+   - **1.4.1 性能修复**：1.4.0 把 Beta 设为默认后，`bilingual_dom_renderer.js` 在每个视频帧（`requestVideoFrameCallback`，通常 60Hz+）都会做一次 DOM 子树查询 + `JSON.stringify` 写入调试信息，播放期间持续占用主线程，导致播放器按钮、插件悬浮球动画等全页面卡顿。现改为用已缓存的锚点元素做 O(1) 判断，并把调试信息节流到最多每 250ms 写一次。
+   - **1.4.2 性能修复**：定位到两处与 Beta 无关、只要打开课程页面就会一直跑的开销——① `video.js` 的 `querySelectorAllDeep()`（几乎所有视频/字幕轨查找的底层实现）每次调用都会对整个 `document` 做 `querySelectorAll("*")` 来找 shadow root，而这在每 1.2s 的 `trackSyncTimer` 里每 tick 触发好几次；② `page_probe.js` 每 1.5s 对页面里每个 `<video>` 做一次 React fiber 树的深度遍历（`reactHints`）。这两处都不需要那么高的实时性，现在分别改成带 TTL 缓存（3s）和按需（默认关闭，仅在真正解析字幕源时才做一次深度遍历）。
+   - **1.4.3**：经排查，部分课程播放卡顿的根因其实是 **Echo360 播放器自身**（其 CSS-in-JS 样式在播放过程中持续 `insertRule` + 强制样式重算，与本扩展无关，暂停播放卡顿即消失），这部分无法从扩展侧修复。但扩展自身的悬浮球/控制面板动画（滑入滑出、脉冲提示环）之前是基于 `right`/`box-shadow` 做的，这类属性的动画需要在主线程上逐帧重新布局/绘制——一旦 Echo360 把主线程占满，我们的动画也会跟着一起掉帧。现改为只用 `transform`/`opacity`，交给合成线程处理，即使宿主页面主线程很忙，扩展自己的界面动画也能保持流畅；同时给面板按钮、悬浮球、弹层链接按钮加上了纯 CSS 的按下反馈（`:active` 缩放），点击时不必等待 JS 处理完才有视觉反馈。
+2. `hasNativeCaptionCapability()`（`source_finder.js`）区分"这节课本来就没有原生字幕位"和"用户/Echo360 只是当前没打开 CC"。Echo360 自己的 CC 是通过自定义 DOM 渲染的，并不会往 `video.textTracks` 里塞真实 cue，所以主要信号是播放器控制栏里那颗 **"Toggle Captions" 按钮是否存在**（`aria-label`/`title` 不随界面语言变化，比它当前 `aria-pressed` 状态或易变的生成 class 名更稳定）；`<track>`/`TextTrack` 存在时也算有能力，作为兼容信号一起判断：
+   - 播放器控制栏里连"Toggle Captions"按钮都没有，也没有 `<track>`/`TextTrack` → 判定为没有能力，挂载时立刻改用浏览器字幕轨，不会先空等一轮才切换。
+   - 按钮存在但当前是关闭状态（`aria-pressed="false"`，一直匹配不到 DOM）→ 视为用户主动选择，保持沉默，不强行覆盖。
+   - 兜底：即使挂载时误判为"有能力"，每个 cue 的匹配宽限期结束后仍会再确认一次，一旦确认没有能力会自动切到浏览器字幕轨（这次切换不会写入已保存的偏好，下节课依然优先尝试 Beta）。
+
+可以在设置 popover 勾选 **始终使用浏览器字幕**（`ui_popover.js`）来关闭上述自动尝试，强制只用浏览器 `<track>` 字幕轨：
 
 - 单语模式直接挂载翻译 VTT。
 - 双语模式由 `subtitle_strategy.js` 按浏览器选择策略：Safari 使用单 cue 双语 VTT，Chrome / Edge 等使用分 cue 双语 VTT。
+- 双语、顺序、大小等选项仅在此模式下可编辑；Beta 模式下这些选项会被强制为双语、非 reverse 顺序。
 
-可选开启 **Echo360 原生 CC（Beta）**（设置 popover 勾选，`bilingual_dom_renderer.js`）：
-
-- 仅在双语模式下生效，尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下）。
-- 1.2.1 起改进了 DOM 匹配与注入时序，尽量与 Echo360 原生 CC 同帧更新。
-- 1.3.0 起 Beta 模式同样支持**边翻译边显示**：通过 `updateTranslatedVtt()` 热更新 cue，无需等整份 VTT。
-- 实验功能，默认关闭；**需要 Echo360 播放器已开启原生 CC** 且页面 DOM 可匹配。若注入失败，不会自动回退到浏览器 `<track>`（请关闭 Beta 或手动改用浏览器字幕轨）。
-
-切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。Beta 模式下「浏览器字幕轨」相关选项会被强制为双语、非 reverse 顺序。
+切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。
 
 ## 目录结构
 
@@ -271,5 +278,5 @@ export TRANSLATOR_PYTHON_BIN=/absolute/path/to/python
 - `page_probe.js` 会注入页面上下文，用于读取 Echo360/React 视频 UUID 线索，从而提高字幕和视频匹配的准确性。
 - 探针默认不抓取详细网络请求 body。
 - 如果录播存在独立开场片段，扩展会优先使用强 media-id 映射，其次使用 timeline/state 兜底匹配。
-- 仅 Transcript 面板、无播放器 CC 的课时依赖 `transcript-file` API（1.2.2）；这类页面无法使用 Beta DOM 模式（没有 Echo360 原生 CC DOM 可注入）。
+- 仅 Transcript 面板、无播放器 CC 的课时依赖 `transcript-file` API（1.2.2）；这类页面没有 Echo360 原生 CC DOM 可注入，会被 `hasNativeCaptionCapability()` 判定为无能力并直接使用浏览器字幕轨。
 - 增量预览的 partial VTT 由 `direct_translator.js` 每批产出并经 `background.js` job 轮询；`buildIncrementalPreviewVtt()` 负责把未译 cue 替换为占位文案。

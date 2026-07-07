@@ -31,14 +31,19 @@
       reverseOrder: false,
       browserBilingual: false,
       browserReverseOrder: false,
-      useNativeSubtitles: true,
+      // Default: prefer Echo360's native CC injection (Beta). It renders with
+      // the platform's own caption look and now matches same-frame latency;
+      // bilingual_dom_renderer.js auto-falls back to the browser <track>
+      // renderer for lessons that have no native CC track at all, so this
+      // is safe as the out-of-the-box behavior rather than an opt-in.
+      useNativeSubtitles: false,
       renderModeVersion: PREFS_SCHEMA_VERSION,
     };
     if (prefs.renderModeVersion !== PREFS_SCHEMA_VERSION) {
-      prefs.useNativeSubtitles = true;
+      prefs.useNativeSubtitles = false;
       prefs.renderModeVersion = PREFS_SCHEMA_VERSION;
     } else {
-      prefs.useNativeSubtitles = prefs.useNativeSubtitles !== false;
+      prefs.useNativeSubtitles = prefs.useNativeSubtitles === true;
     }
     prefs.browserBilingual = typeof prefs.browserBilingual === "boolean" ? prefs.browserBilingual : prefs.bilingual === true;
     prefs.browserReverseOrder = typeof prefs.browserReverseOrder === "boolean" ? prefs.browserReverseOrder : prefs.reverseOrder === true;
@@ -53,7 +58,7 @@
     const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
     const obj = await extensionApi.storage.local.get(key);
     const existing = obj[key] && typeof obj[key] === "object" ? obj[key] : {};
-    const useNativeSubtitles = prefs.useNativeSubtitles !== false;
+    const useNativeSubtitles = prefs.useNativeSubtitles === true;
     const browserBilingual = useNativeSubtitles
       ? prefs.bilingual === true
       : typeof prefs.browserBilingual === "boolean"

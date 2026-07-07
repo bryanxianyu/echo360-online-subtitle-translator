@@ -285,15 +285,15 @@ describe("getPrefs normalization", () => {
     expect(prefs.size).toBe("medium");
   });
 
-  it("returns defaults when nothing is stored (native subtitles on, bilingual off)", async () => {
+  it("returns defaults when nothing is stored (Echo360 native CC beta preferred, bilingual on)", async () => {
     const { storage } = setupStorage({ storageData: {} });
     const prefs = await storage.getPrefs();
     expect(prefs.enabled).toBe(true);
-    expect(prefs.useNativeSubtitles).toBe(true);
-    expect(prefs.bilingual).toBe(false);
+    expect(prefs.useNativeSubtitles).toBe(false);
+    expect(prefs.bilingual).toBe(true);
   });
 
-  it("migrates legacy prefs without schema version to native subtitles", async () => {
+  it("migrates legacy prefs without schema version to prefer Echo360 native CC beta", async () => {
     const { storage } = setupStorage({
       storageData: {
         [prefsKey()]: {
@@ -301,12 +301,12 @@ describe("getPrefs normalization", () => {
           size: "medium",
           bilingual: false,
           reverseOrder: false,
-          useNativeSubtitles: false,
+          useNativeSubtitles: true,
         },
       },
     });
     const prefs = await storage.getPrefs();
-    expect(prefs.useNativeSubtitles).toBe(true);
+    expect(prefs.useNativeSubtitles).toBe(false);
     expect(prefs.renderModeVersion).toBe(2);
   });
 });
@@ -412,11 +412,11 @@ describe("savePrefs", () => {
     expect(saved.browserReverseOrder).toBe(true);
   });
 
-  it("treats missing useNativeSubtitles as true (not false)", async () => {
+  it("treats missing useNativeSubtitles as false (Echo360 native CC beta preferred)", async () => {
     const { storage, localMock } = setupStorage();
     await storage.savePrefs({ bilingual: false, reverseOrder: true });
     const saved = localMock._store[prefsKey()];
-    expect(saved.useNativeSubtitles).toBe(true);
+    expect(saved.useNativeSubtitles).toBe(false);
   });
 
   it("round-trips: savePrefs then getPrefs returns the same values", async () => {

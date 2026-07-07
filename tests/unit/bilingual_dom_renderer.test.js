@@ -29,6 +29,10 @@
  *   P11 native CC injector stays quiet when injection fails
  *   P12 setVisible(false) prevents native injection
  *   P17 updateTranslatedVtt refreshes cue translations without remounting
+ *   P19 mount refuses immediately with no native caption capability
+ *   P20 onNoCaptionCapability fires once capability is confirmed absent
+ *   P21 onNoCaptionCapability stays silent when CC capability exists but is off
+ *   P22 onNoCaptionCapability fires at most once per mount
  */
 
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from "vitest";
@@ -113,7 +117,14 @@ function setupPlayer(video) {
 let renderer;
 
 beforeAll(() => {
-  window.Echo360Translator = makeFullNs();
+  window.Echo360Translator = makeFullNs({
+    sourceFinder: {
+      // Defaults to "this video has a native caption track" so the existing
+      // DOM-injection tests below (which never touch this mock) behave as
+      // before. Capability-specific tests override the return value.
+      hasNativeCaptionCapability: vi.fn(() => true),
+    },
+  });
   evalModule("vtt.js");
   evalModule("bilingual_dom_renderer.js");
   renderer = window.Echo360Translator.bilingualDomRenderer;
@@ -126,6 +137,7 @@ beforeEach(() => {
   // Reset performance clock; individual tests advance mockNow as needed.
   mockNow = 0;
   vi.spyOn(performance, "now").mockImplementation(() => mockNow);
+  window.Echo360Translator.sourceFinder.hasNativeCaptionCapability.mockReset().mockReturnValue(true);
 
   // Ensure clean renderer and DOM state before every test.
   renderer.unmount();
@@ -462,6 +474,85 @@ describe("native CC disabled / injection unavailable", () => {
     expect(document.querySelector("[data-echo360-translated-line='1']")).toBeNull();
     expect(document.getElementById("echo360-bilingual-dom-overlay")).toBeNull();
     expect(renderer.getDebugState()).not.toHaveProperty("fallbackHits");
+  });
+});
+
+// ── P19 - P22 ─────────────────────────────────────────────────────────────────
+describe("native caption capability detection & fallback", () => {
+  it("P19: mount returns false immediately when the video has no native caption capability at all", () => {
+    // No <track>/TextTrack ever existed for this video (e.g. a lesson with
+    // only a Transcript side panel) — there is nothing for the DOM scanner
+    // to ever find, so mount() should refuse synchronously instead of
+    // waiting out a per-cue grace period first.
+    window.Echo360Translator.sourceFinder.hasNativeCaptionCapability.mockReturnValue(false);
+    const video = makeVideo(1.0);
+    setupPlayer(video);
+    const onNoCaptionCapability = vi.fn();
+
+    const mounted = renderer.mount({
+      video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium", onNoCaptionCapability,
+    });
+
+    expect(mounted).toBe(false);
+    expect(renderer.isMounted()).toBe(false);
+    // mount() itself only signals refusal via its return value; it is the
+    // caller's job to decide what "no capability" means (e.g. fall back).
+    expect(onNoCaptionCapability).not.toHaveBeenCalled();
+  });
+
+  it("P20: fires onNoCaptionCapability once the grace period expires and capability is confirmed absent", () => {
+    const video = makeVideo(1.0);
+    setupPlayer(video); // no matching caption span ever added
+    const onNoCaptionCapability = vi.fn();
+    renderer.mount({
+      video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium", onNoCaptionCapability,
+    });
+
+    // Capability looked present at mount time (default mock), but nothing
+    // ever appears; the safety-net re-check at exhaustion time confirms
+    // there really is no native caption capability after all.
+    window.Echo360Translator.sourceFinder.hasNativeCaptionCapability.mockReturnValue(false);
+    mockNow = 800;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(true);
+    expect(onNoCaptionCapability).toHaveBeenCalledOnce();
+  });
+
+  it("P21: does not fire onNoCaptionCapability when native CC capability exists but is simply turned off", () => {
+    // Distinguishes "the user/Echo360 turned CC off" (stay silent, respect
+    // the choice) from "this lesson never had CC" (fall back automatically).
+    const video = makeVideo(1.0);
+    setupPlayer(video); // no matching caption span; capability stays true throughout
+    const onNoCaptionCapability = vi.fn();
+    renderer.mount({
+      video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium", onNoCaptionCapability,
+    });
+
+    mockNow = 800;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(true);
+    expect(onNoCaptionCapability).not.toHaveBeenCalled();
+  });
+
+  it("P22: fires onNoCaptionCapability at most once even across repeated exhausted checks", () => {
+    const video = makeVideo(1.0);
+    setupPlayer(video);
+    const onNoCaptionCapability = vi.fn();
+    renderer.mount({
+      video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium", onNoCaptionCapability,
+    });
+
+    window.Echo360Translator.sourceFinder.hasNativeCaptionCapability.mockReturnValue(false);
+    mockNow = 800;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 850;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 900;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(onNoCaptionCapability).toHaveBeenCalledOnce();
   });
 });
 

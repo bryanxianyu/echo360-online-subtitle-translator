@@ -87,14 +87,24 @@
         .map((e) => e.name)
         .filter((name) => interestingUrl(name));
     },
-    videos() {
+    videos(options) {
+      // reactHints() walks each ancestor's own keys and recursively descends
+      // into anything that looks like React/Angular internal state (fiber
+      // trees, props, etc.) looking for UUIDs. That is only ever useful as a
+      // last-resort hint when matching a video to a media id (video.js does
+      // the same walk directly, on demand, when actually resolving a
+      // translate source) - it's not something that needs to be fresh on a
+      // recurring timer. Skip it by default so the interval below (which
+      // runs on every page, translating or not) stays cheap; callers that
+      // truly need it can opt in explicitly.
+      const deep = !!(options && options.deep);
       return [...document.querySelectorAll("video")].map((v, i) => {
         const rect = v.getBoundingClientRect();
         const ids = new Set();
         addUuids(v.currentSrc, ids);
         addUuids(v.src, ids);
         [...v.attributes].forEach((a) => addUuids(a.value, ids));
-        reactHints(v).forEach((id) => ids.add(id));
+        if (deep) reactHints(v).forEach((id) => ids.add(id));
         return {
           i,
           currentTime: Number(v.currentTime || 0).toFixed(2),

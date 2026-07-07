@@ -37,7 +37,7 @@ describe("settings popover render mode controls", () => {
     vi.restoreAllMocks();
   });
 
-  it("restores browser subtitle checkboxes after toggling Echo360 native CC beta off", async () => {
+  it("restores browser subtitle checkboxes after toggling into Echo360 native CC beta and back to forced browser track", async () => {
     setupUi({
       enabled: true,
       bilingual: false,
@@ -53,8 +53,12 @@ describe("settings popover render mode controls", () => {
     const reverseOrder = document.getElementById("echo360-pref-reverse");
     expect(bilingual.checked).toBe(false);
     expect(reverseOrder.checked).toBe(true);
+    expect(bilingual.disabled).toBe(false);
+    expect(reverseOrder.disabled).toBe(false);
 
-    changeCheckbox("echo360-pref-echo360-native-cc", true);
+    // Uncheck "始终使用浏览器字幕" → switch into Beta; browser-mode controls
+    // become disabled but keep showing their last known values.
+    changeCheckbox("echo360-pref-echo360-native-cc", false);
     expect(bilingual.disabled).toBe(true);
     expect(reverseOrder.disabled).toBe(true);
     expect(bilingual.checked).toBe(false);
@@ -63,7 +67,9 @@ describe("settings popover render mode controls", () => {
     expect(reverseOrder.style.cursor).toBe("not-allowed");
     expect(document.getElementById("echo360-pref-size").style.filter).toBe("grayscale(1)");
 
-    changeCheckbox("echo360-pref-echo360-native-cc", false);
+    // Re-check it → back to forced browser track; controls re-enabled with
+    // the same restored values.
+    changeCheckbox("echo360-pref-echo360-native-cc", true);
     expect(bilingual.disabled).toBe(false);
     expect(reverseOrder.disabled).toBe(false);
     expect(bilingual.checked).toBe(false);
@@ -85,7 +91,8 @@ describe("settings popover render mode controls", () => {
     });
     await openSettings();
 
-    changeCheckbox("echo360-pref-echo360-native-cc", true);
+    // Uncheck "始终使用浏览器字幕" → switch into Beta.
+    changeCheckbox("echo360-pref-echo360-native-cc", false);
     const prefs = window.Echo360Translator.ui.readPanelPrefs();
 
     expect(prefs.useNativeSubtitles).toBe(false);
@@ -95,7 +102,7 @@ describe("settings popover render mode controls", () => {
     expect(prefs.browserReverseOrder).toBe(true);
   });
 
-  it("shows saved browser subtitle checkbox states when Echo360 native CC beta is already enabled", async () => {
+  it("shows saved browser subtitle checkbox states and disables them when Echo360 native CC beta is active", async () => {
     setupUi({
       enabled: true,
       bilingual: true,
@@ -107,11 +114,11 @@ describe("settings popover render mode controls", () => {
     });
     await openSettings();
 
-    const beta = document.getElementById("echo360-pref-echo360-native-cc");
+    const forceBrowserTrack = document.getElementById("echo360-pref-echo360-native-cc");
     const bilingual = document.getElementById("echo360-pref-bilingual");
     const reverseOrder = document.getElementById("echo360-pref-reverse");
 
-    expect(beta.checked).toBe(true);
+    expect(forceBrowserTrack.checked).toBe(false);
     expect(bilingual.disabled).toBe(true);
     expect(reverseOrder.disabled).toBe(true);
     expect(bilingual.checked).toBe(false);

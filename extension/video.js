@@ -15,14 +15,42 @@
     });
   }
 
-  function querySelectorAllDeep(selector, root = document) {
-    const results = Array.from(root.querySelectorAll(selector));
+  // Walking every element in the whole document (querySelectorAll("*")) just
+  // to find the handful that host a shadow root is the expensive part here,
+  // and this used to run on *every* call - which, via the 1.2s trackSyncTimer
+  // + applySubtitleVisibility()/pickActiveTranslatedTrack(), meant a full
+  // document-wide scan several times a second on Echo360's (large, React-
+  // driven) page, indefinitely, whether or not translation was ever used.
+  // Shadow roots don't churn on that timescale, so cache the discovered set
+  // for a short TTL instead of rediscovering it on every call.
+  const SHADOW_ROOT_SCAN_TTL_MS = 3000;
+  let shadowRootScanCache = { at: -Infinity, roots: [] };
+
+  function discoverShadowRoots(root) {
+    const roots = [];
     const stack = Array.from(root.querySelectorAll("*"));
     while (stack.length > 0) {
       const el = stack.shift();
       if (!el || !el.shadowRoot) continue;
-      results.push(...Array.from(el.shadowRoot.querySelectorAll(selector)));
+      roots.push(el.shadowRoot);
       stack.push(...Array.from(el.shadowRoot.querySelectorAll("*")));
+    }
+    return roots;
+  }
+
+  function getShadowRoots(root) {
+    if (root !== document) return discoverShadowRoots(root);
+    const now = Date.now();
+    if (now - shadowRootScanCache.at >= SHADOW_ROOT_SCAN_TTL_MS) {
+      shadowRootScanCache = { at: now, roots: discoverShadowRoots(root) };
+    }
+    return shadowRootScanCache.roots;
+  }
+
+  function querySelectorAllDeep(selector, root = document) {
+    const results = Array.from(root.querySelectorAll(selector));
+    for (const shadowRoot of getShadowRoots(root)) {
+      results.push(...Array.from(shadowRoot.querySelectorAll(selector)));
     }
     return results;
   }
