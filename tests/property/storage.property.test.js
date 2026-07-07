@@ -11,7 +11,7 @@
  *   getPrefs / savePrefs roundtrip
  *     P5 – save then get roundtrip preserves all boolean prefs
  *     P6 – size is always one of the valid SIZE_MAP keys after getPrefs
- *     P7 – Echo360 native CC beta mode forces bilingual=true, reverseOrder=false
+ *     P7 – Echo360 native CC mode forces bilingual=true, reverseOrder=false
  *     P8 – useNativeSubtitles=true preserves bilingual/reverseOrder booleans
  *
  *   getContextKey
@@ -187,7 +187,7 @@ describe("getPrefs / savePrefs properties", () => {
     );
   });
 
-  it("P7 – Echo360 native CC beta mode forces bilingual=true, reverseOrder=false", async () => {
+  it("P7 – Echo360 native CC mode forces bilingual=true, reverseOrder=false", async () => {
     await fc.assert(
       fc.asyncProperty(fc.boolean(), fc.boolean(), async (bilingual, reverseOrder) => {
         const { storage } = setupStorage();

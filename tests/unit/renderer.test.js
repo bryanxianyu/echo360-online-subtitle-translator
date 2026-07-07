@@ -18,6 +18,15 @@ const TRANS_VTT = `WEBVTT
 function setupRenderer({ domMountResult = true, buildBilingualVtt } = {}) {
   document.body.innerHTML = "";
   document.head.innerHTML = "";
+  let objectUrlId = 0;
+  Object.defineProperty(URL, "createObjectURL", {
+    value: vi.fn(() => `blob:echo360-test-${++objectUrlId}`),
+    configurable: true,
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    value: vi.fn(),
+    configurable: true,
+  });
   const video = document.createElement("video");
   Object.defineProperty(video, "duration", { value: 2, configurable: true });
   vi.spyOn(video, "getBoundingClientRect").mockReturnValue({
@@ -31,7 +40,9 @@ function setupRenderer({ domMountResult = true, buildBilingualVtt } = {}) {
   document.body.appendChild(video);
 
   let domMounted = false;
-  const domMount = vi.fn(() => {
+  let lastMountOpts = null;
+  const domMount = vi.fn((opts) => {
+    lastMountOpts = opts;
     if (!domMountResult) return false;
     domMounted = true;
     return true;
@@ -72,10 +83,16 @@ function setupRenderer({ domMountResult = true, buildBilingualVtt } = {}) {
     },
   });
   evalModule("renderer.js");
-  return { renderer: window.Echo360Translator.renderer, video, domMount, domUpdate };
+  return {
+    renderer: window.Echo360Translator.renderer,
+    video,
+    domMount,
+    domUpdate,
+    getLastMountOpts: () => lastMountOpts,
+  };
 }
 
-describe("renderer Echo360 native CC beta mode", () => {
+describe("renderer Echo360 native CC mode", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -104,17 +121,81 @@ describe("renderer Echo360 native CC beta mode", () => {
     expect(video.querySelector('track[data-echo360-translated="1"]')).toBeNull();
   });
 
-  it("does not fall back to creating a browser track when DOM mounting fails", () => {
+  it("falls back to a browser track immediately when DOM mounting refuses synchronously (e.g. no native caption capability)", () => {
     const { renderer, video, domMount } = setupRenderer({ domMountResult: false });
 
     const mounted = renderer.renderTranslatedTrack(TRANS_VTT, ORIG_VTT, true, "medium", false, null, false);
 
-    expect(mounted).toBe(false);
+    expect(mounted).toBe(true);
     expect(domMount).toHaveBeenCalledOnce();
-    expect(video.querySelectorAll("track").length).toBe(0);
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
   });
 
-  it("updates the DOM renderer in place during incremental beta preview refreshes", () => {
+  it("passes an onNoCaptionCapability callback to the DOM renderer on mount", () => {
+    const { renderer, getLastMountOpts } = setupRenderer({ domMountResult: true });
+
+    renderer.renderTranslatedTrack(TRANS_VTT, ORIG_VTT, true, "medium", false, null, false);
+
+    expect(typeof getLastMountOpts().onNoCaptionCapability).toBe("function");
+  });
+
+  it("falls back to a browser track when the DOM renderer later reports no native caption capability", () => {
+    const { renderer, video, getLastMountOpts } = setupRenderer({ domMountResult: true });
+
+    const mounted = renderer.renderTranslatedTrack(TRANS_VTT, ORIG_VTT, true, "medium", false, null, false);
+    expect(mounted).toBe(true);
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(0);
+
+    // Simulate bilingual_dom_renderer.js confirming (after the per-cue grace
+    // period) that this lesson has no native CC capability at all.
+    getLastMountOpts().onNoCaptionCapability();
+
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
+  });
+
+  it("uses the user's real browser-mode preference (not native CC's forced bilingual=true) when falling back synchronously", () => {
+    // Native CC mode forces bilingual=true/reverseOrder=false on its own params - but
+    // the user's actual saved preference for browser-track mode can be
+    // anything, independently. A naive fallback that reuses native CC's forced
+    // pair would silently force bilingual-on even for a user who explicitly
+    // wants monolingual browser subtitles.
+    const buildBilingualVtt = vi.fn(({ translatedVtt }) => translatedVtt);
+    const { renderer, video } = setupRenderer({ domMountResult: false, buildBilingualVtt });
+
+    const mounted = renderer.renderTranslatedTrack(
+      TRANS_VTT, ORIG_VTT, true, "medium", false, null, false,
+      { browserBilingual: false, browserReverseOrder: false }
+    );
+
+    expect(mounted).toBe(true);
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
+    // renderTranslatedTrack() speculatively builds a bilingual payload from
+    // its *own* bilingual/reverseOrder params before it even knows whether
+    // native CC will succeed - that first (wasted) call reflects native CC's forced
+    // bilingual=true and is unavoidable here. The bug this guards against is
+    // the *fallback* recursion also using that forced true instead of
+    // browserBilingual=false: that would produce a second call, so a fixed
+    // implementation must show exactly one call total, not two.
+    expect(buildBilingualVtt).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the user's real browser-mode preference when the DOM renderer reports no native caption capability at runtime", () => {
+    const buildBilingualVtt = vi.fn(({ translatedVtt, reverseOrder }) => `${translatedVtt}::${reverseOrder}`);
+    const { renderer, getLastMountOpts } = setupRenderer({ domMountResult: true, buildBilingualVtt });
+
+    const mounted = renderer.renderTranslatedTrack(
+      TRANS_VTT, ORIG_VTT, true, "medium", false, null, false,
+      { browserBilingual: true, browserReverseOrder: true }
+    );
+    expect(mounted).toBe(true);
+    buildBilingualVtt.mockClear();
+
+    getLastMountOpts().onNoCaptionCapability();
+
+    expect(buildBilingualVtt).toHaveBeenCalledWith(expect.objectContaining({ reverseOrder: true }));
+  });
+
+  it("updates the DOM renderer in place during incremental native CC preview refreshes", () => {
     const partialVtt = `WEBVTT
 
 00:00:00.000 --> 00:00:02.000

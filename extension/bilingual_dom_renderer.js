@@ -5,9 +5,20 @@
   const INJECTED_LINE_SELECTOR = "[data-echo360-translated-line='1']";
   const INJECTION_STYLE_ID = "echo360-translator-dom-injection-style";
   const DEBUG_ELEMENT_ID = "echo360-translator-dom-debug";
+  // requestVideoFrameCallback re-invokes renderCurrentCue() at the display's
+  // refresh rate (commonly 60-120Hz) for as long as native CC injection is
+  // mounted, i.e.
+  // for the entire video duration. The debug snapshot is only ever read by
+  // a human inspecting the DOM, so refreshing it that often buys nothing and
+  // just burns main-thread time on JSON.stringify + a DOM write every frame.
+  const DEBUG_PUBLISH_THROTTLE_MS = 250;
   let state = null;
+  let lastDebugPublishAt = -Infinity;
 
   function publishDebugState() {
+    const now = performance.now();
+    if (now - lastDebugPublishAt < DEBUG_PUBLISH_THROTTLE_MS) return;
+    lastDebugPublishAt = now;
     let element = document.getElementById(DEBUG_ELEMENT_ID);
     if (!element) {
       element = document.createElement("meta");
@@ -194,6 +205,15 @@
     });
   }
 
+  // Cheap (O(1)) replacement for querying the DOM on every single video
+  // frame: we already hold a direct reference to the one element we ever
+  // inject into, so checking it directly avoids a subtree query that would
+  // otherwise run at the display's refresh rate for as long as native CC
+  // injection stays mounted.
+  function isInjectedLinePresent() {
+    return !!(state?.nativeAnchor?.isConnected && state.nativeAnchor.hasAttribute("data-echo360-translated-line"));
+  }
+
   function clearInjectedLines() {
     if (!state?.player) return;
     state.player.querySelectorAll(INJECTED_LINE_SELECTOR).forEach((element) => {
@@ -268,7 +288,7 @@
   function renderCurrentCue() {
     if (!state || !ensureAttached()) return;
     const index = findCueIndex(Number(state.video.currentTime || 0));
-    const injectedStillPresent = !!state.player.querySelector(INJECTED_LINE_SELECTOR);
+    const injectedStillPresent = isInjectedLinePresent();
     if (index === state.lastCueIndex && state.nativeInjectedCueIndex === index && injectedStillPresent) {
       publishDebugState();
       return;
@@ -309,7 +329,29 @@
     }
     if (shouldSearchNative) {
       state.nativeInjectedCueIndex = -1;
-      if (now >= state.nativeCaptionWaitUntil) state.nativeSearchExhausted = true;
+      if (now >= state.nativeCaptionWaitUntil) {
+        state.nativeSearchExhausted = true;
+        // Safety net: the mount-time capability pre-check (below) can be a
+        // stale/false positive (e.g. Echo360 hadn't wired its <track> yet).
+        // Re-check exactly once, at the point native CC injection is about to
+        // give up on a
+        // real cue, so a genuinely CC-less lesson still gets a definitive
+        // "no capability" signal instead of silently showing nothing forever.
+        if (!state.capabilityFallbackFired && !ns.sourceFinder.hasNativeCaptionCapability(state.video)) {
+          state.capabilityFallbackFired = true;
+          const stateBeforeCallback = state;
+          state.onNoCaptionCapability?.();
+          // The callback commonly re-renders synchronously (e.g. renderer.js
+          // falling back to the browser <track> renderer), which calls this
+          // module's unmount() - and possibly a fresh mount() - before
+          // returning. `state` (the shared module binding, not a local copy)
+          // may now be null or an entirely different mount; either way this
+          // in-flight renderCurrentCue() call was based on a mount that no
+          // longer applies, so bail out instead of dereferencing stale/null
+          // state below.
+          if (state !== stateBeforeCallback) return;
+        }
+      }
     }
     if (!cue && state.nativeAnchor?.isConnected && isVisibleInPlayer(state.nativeAnchor)) {
       publishDebugState();
@@ -349,10 +391,17 @@
     return true;
   }
 
-  function mount({ video, originalVtt, translatedVtt, size, reverseOrder }) {
+  function mount({ video, originalVtt, translatedVtt, size, reverseOrder, onNoCaptionCapability }) {
     const player = findPlayer(video);
     const cues = buildCues(originalVtt, translatedVtt);
     if (!video || !player || cues.length === 0) return false;
+
+    // Fast path: skip the whole native CC DOM-injection attempt (and its per-cue
+    // grace period) when this video has no Echo360-owned caption track at
+    // all. There is nothing for the scanner to ever find, so failing fast
+    // here lets the caller fall back to the browser <track> renderer
+    // immediately instead of waiting out NATIVE_CAPTION_GRACE_MS per cue.
+    if (!ns.sourceFinder.hasNativeCaptionCapability(video)) return false;
 
     unmount();
     state = {
@@ -369,6 +418,8 @@
       nativeSearchExhausted: false,
       nativeAnchor: null,
       nativeAnchorDebug: null,
+      onNoCaptionCapability: typeof onNoCaptionCapability === "function" ? onNoCaptionCapability : null,
+      capabilityFallbackFired: false,
       listeners: [],
       frameHandle: null,
       mutationObserver: null,
@@ -419,7 +470,7 @@
       cueCount: state.cues.length,
       lastCueIndex: state.lastCueIndex,
       nativeInjectedCueIndex: state.nativeInjectedCueIndex,
-      injectedLineCount: state.player.querySelectorAll(INJECTED_LINE_SELECTOR).length,
+      injectedLineCount: isInjectedLinePresent() ? 1 : 0,
       nativeInjectionHits: state.nativeInjectionHits,
       waitingForNativeCaption: performance.now() < state.nativeCaptionWaitUntil,
       nativeSearchExhausted: state.nativeSearchExhausted,

@@ -170,3 +170,107 @@ describe("fetchTranscriptFileVtt", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("hasNativeCaptionCapability", () => {
+  beforeEach(() => {
+    sourceFinder = setup();
+    document.body.innerHTML = "";
+  });
+
+  it("returns false for a null/undefined video", () => {
+    expect(sourceFinder.hasNativeCaptionCapability(null)).toBe(false);
+  });
+
+  it("returns false when the video has no <track>, no textTracks, and no caption toggle button", () => {
+    const video = { querySelectorAll: () => [], textTracks: [] };
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(false);
+  });
+
+  it("returns true when a native <track src> element exists", () => {
+    const track = document.createElement("track");
+    track.src = "https://example.com/a.vtt";
+    const video = { querySelectorAll: (sel) => (sel === "track[src]" ? [track] : []), textTracks: [] };
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(true);
+  });
+
+  it("ignores the extension's own translated <track> element", () => {
+    const track = document.createElement("track");
+    track.src = "blob:extension-generated";
+    track.setAttribute("data-echo360-translated", "1");
+    const video = { querySelectorAll: (sel) => (sel === "track[src]" ? [track] : []), textTracks: [] };
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(false);
+  });
+
+  it("returns true when a native TextTrack exists even with mode='disabled' (CC just turned off)", () => {
+    const video = {
+      querySelectorAll: () => [],
+      textTracks: [{ label: "English (CC)", mode: "disabled" }],
+    };
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(true);
+  });
+
+  it("ignores the extension's own translated TextTrack", () => {
+    const video = {
+      querySelectorAll: () => [],
+      textTracks: [{ label: "翻译字幕", mode: "showing" }],
+    };
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(false);
+  });
+
+  // Echo360 does not expose its own CC via <track>/TextTrack at all in
+  // practice — it renders captions through a custom DOM overlay. The
+  // player's own "Toggle Captions" control (aria-label/title stay in
+  // English regardless of UI language) is the real, toggle-state-
+  // independent capability signal for that case.
+  function makeRealVideo() {
+    const player = document.createElement("div");
+    player.id = "player";
+    const video = document.createElement("video");
+    Object.defineProperty(video, "textTracks", { value: [], configurable: true });
+    player.appendChild(video);
+    document.body.appendChild(player);
+    return video;
+  }
+
+  it("returns true when the player has a 'Toggle Captions' button, even when currently off (aria-pressed=false)", () => {
+    const video = makeRealVideo();
+    const btn = document.createElement("button");
+    btn.setAttribute("aria-label", "Toggle Captions");
+    btn.setAttribute("title", "Toggle Captions");
+    btn.setAttribute("aria-pressed", "false");
+    video.parentElement.appendChild(btn);
+
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(true);
+  });
+
+  it("returns true when the 'Toggle Captions' button is currently on (aria-pressed=true)", () => {
+    const video = makeRealVideo();
+    const btn = document.createElement("button");
+    btn.setAttribute("aria-label", "Toggle Captions");
+    btn.setAttribute("aria-pressed", "true");
+    video.parentElement.appendChild(btn);
+
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(true);
+  });
+
+  it("matches via the title attribute when aria-label is absent", () => {
+    const video = makeRealVideo();
+    const btn = document.createElement("button");
+    btn.setAttribute("title", "Subtitles");
+    video.parentElement.appendChild(btn);
+
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(true);
+  });
+
+  it("returns false when the player only has unrelated controls (mute, layout, ...)", () => {
+    const video = makeRealVideo();
+    for (const label of ["mute", "Layout", "Play", "Fullscreen"]) {
+      const btn = document.createElement("button");
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", label);
+      video.parentElement.appendChild(btn);
+    }
+
+    expect(sourceFinder.hasNativeCaptionCapability(video)).toBe(false);
+  });
+});

@@ -32,9 +32,21 @@
       }
 
       /* ===== Floating ball ===== */
+      /*
+       * The reveal/hide and pulse animations below are deliberately written to
+       * touch only "transform" and "opacity". Echo360's own player can pin the
+       * main thread for hundreds of ms at a time (e.g. its own CSS-in-JS style
+       * churn during playback); animating "right" or "box-shadow" instead would
+       * require a synchronous layout/paint on that same main thread every
+       * frame, so this UI would visibly stutter in lockstep with the page's
+       * own jank. transform/opacity changes are handled by the compositor on
+       * their own thread, so they keep animating smoothly even while the page
+       * is busy - it won't fix the underlying page-side lag, but our own UI
+       * stops adding to the perceived stutter.
+       */
       #echo360-translator-ball {
         position: fixed;
-        right: -26px;
+        right: 6px;
         bottom: 120px;
         width: 52px;
         height: 52px;
@@ -50,15 +62,22 @@
         z-index: 2147483647;
         pointer-events: auto;
         box-shadow: -3px 2px 14px var(--echo360-ball-shadow);
-        transition: right 0.28s cubic-bezier(0.34,1.4,0.64,1),
+        transform: translateX(32px);
+        will-change: transform;
+        transition: transform 0.28s cubic-bezier(0.34,1.4,0.64,1),
                     opacity 0.2s ease,
                     box-shadow 0.2s;
         user-select: none;
         outline: none;
       }
       #echo360-translator-ball:hover {
-        right: 6px;
+        transform: translateX(0);
         box-shadow: -5px 4px 22px var(--echo360-ball-shadow-hover);
+      }
+      /* Immediate, JS-independent press feedback so clicks feel responsive
+         even if the actual click handler has to wait behind a busy main thread. */
+      #echo360-translator-ball:hover:active {
+        transform: translateX(0) scale(0.92);
       }
       /*
        * Extend the hover-sensitive zone 30 px to the right.
@@ -74,20 +93,30 @@
         left: 0;
       }
       #echo360-translator-ball.echo360-ball-hidden {
-        right: -64px;
+        transform: translateX(70px);
         opacity: 0;
         pointer-events: none;
       }
 
       /* ===== First-run onboarding ===== */
       @keyframes echo360-ball-pulse-ring {
-        0% { box-shadow: 0 0 0 0 var(--echo360-ball-shadow-hover); }
-        70% { box-shadow: 0 0 0 14px rgba(0,0,0,0); }
-        100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); }
+        0% { transform: scale(1); opacity: 0.55; }
+        70% { transform: scale(1.55); opacity: 0; }
+        100% { transform: scale(1.55); opacity: 0; }
       }
-      /* Loops until the user dismisses the onboarding bubble (no auto-hide timer). */
-      #echo360-translator-ball.echo360-ball-pulse {
+      /* A ::before ripple instead of an animated box-shadow: same "radar ping"
+         look, but scale+opacity can run on the compositor thread instead of
+         forcing a main-thread repaint every frame.
+         Loops until the user dismisses the onboarding bubble (no auto-hide timer). */
+      #echo360-translator-ball.echo360-ball-pulse::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: var(--echo360-ball-shadow-hover);
         animation: echo360-ball-pulse-ring 1.8s ease-out infinite;
+        will-change: transform, opacity;
+        pointer-events: none;
       }
       #echo360-onboarding-bubble {
         position: fixed;
@@ -149,9 +178,11 @@
       }
 
       /* ===== Control panel ===== */
+      /* Same reasoning as the ball above: slide via transform (compositor-only)
+         instead of animating "right" (main-thread layout every frame). */
       #echo360-translator-panel {
         position: fixed;
-        right: -${PANEL_W + 40}px;
+        right: 12px;
         bottom: 80px;
         width: ${PANEL_W}px;
         z-index: 2147483647;
@@ -166,10 +197,12 @@
         border-radius: 12px;
         padding: 10px;
         box-shadow: -4px 2px 24px var(--echo360-panel-shadow);
-        transition: right 0.32s cubic-bezier(0.34,1.15,0.64,1);
+        transform: translateX(${PANEL_W + 52}px);
+        will-change: transform;
+        transition: transform 0.32s cubic-bezier(0.34,1.15,0.64,1);
       }
       #echo360-translator-panel.echo360-panel-visible {
-        right: 12px;
+        transform: translateX(0);
       }
 
       /* ===== Panel buttons ===== */
@@ -188,10 +221,16 @@
         line-height: 1.3;
         background: var(--echo360-btn-bg);
         color: var(--echo360-btn-fg);
-        transition: filter 0.15s, opacity 0.15s;
+        transition: filter 0.15s, opacity 0.15s, transform 0.1s;
       }
       .echo360-panel-btn:hover:not(:disabled) {
         filter: var(--echo360-btn-hover-filter);
+      }
+      /* Applied by the browser on mousedown, independent of our click handler
+         actually running - gives instant tactile feedback even if the real
+         action is stuck waiting behind a busy main thread. */
+      .echo360-panel-btn:active:not(:disabled) {
+        transform: scale(0.96);
       }
       .echo360-panel-btn:disabled {
         opacity: 0.6;
@@ -277,10 +316,13 @@
         cursor: pointer;
         padding: 2px 0;
         opacity: .6;
-        transition: opacity .15s;
+        transition: opacity .15s, transform 0.1s;
       }
       .echo360-popover-link-btn:hover {
         opacity: 1;
+      }
+      .echo360-popover-link-btn:active {
+        transform: scale(0.95);
       }
       .echo360-popover-link-btn--underline {
         text-decoration: underline;

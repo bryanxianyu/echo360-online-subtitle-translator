@@ -43,8 +43,8 @@
         <span>反转字幕位置</span>
         <input id="echo360-pref-reverse" type="checkbox" />
       </label>
-      <label class="echo360-popover-row" title="实验功能：把译文注入 Echo360 自带 CC 字幕。默认关闭，使用浏览器系统原生字幕。">
-        <span>Echo360 原生 CC（Beta）</span>
+      <label class="echo360-popover-row" title="默认会把译文注入 Echo360 播放器自带的 CC 字幕区域；如果本课程没有原生字幕位，会自动切换为浏览器字幕。勾选后始终使用浏览器字幕，不再尝试注入原生 CC。">
+        <span>始终使用浏览器字幕</span>
         <input id="echo360-pref-echo360-native-cc" type="checkbox" />
       </label>
       <label id="echo360-pref-size-label" class="echo360-popover-block-label">字幕大小
@@ -85,7 +85,11 @@
     };
 
     function syncRenderModeControls() {
-      const disabled = refs.nativeCc.checked;
+      // Bilingual/reverse-order/size only apply to the browser <track>
+      // renderer: native CC injection always adds a single translated line
+      // into Echo360's own caption box, so those controls are only meaningful
+      // (and editable) when "始终使用浏览器字幕" is checked.
+      const disabled = !refs.nativeCc.checked;
       refs.bilingual.disabled = disabled;
       refs.reverseOrder.disabled = disabled;
       refs.size.disabled = disabled;
@@ -120,7 +124,10 @@
     refs.bilingual.addEventListener("change", () => handlers.onPrefsChanged?.());
     refs.reverseOrder.addEventListener("change", () => handlers.onPrefsChanged?.());
     refs.nativeCc.addEventListener("change", () => {
-      if (refs.nativeCc.checked) {
+      if (!refs.nativeCc.checked) {
+        // Switching into native CC mode (checkbox unchecked): snapshot the
+        // browser-mode values before their controls become disabled, so
+        // they can be restored if the user switches back later.
         browserModePrefs = {
           bilingual: refs.bilingual.checked,
           reverseOrder: refs.reverseOrder.checked,
@@ -147,15 +154,16 @@
       refs.enabled.checked = !!prefs.enabled;
       refs.bilingual.checked = !!browserModePrefs.bilingual;
       refs.reverseOrder.checked = !!browserModePrefs.reverseOrder;
-      refs.nativeCc.checked = prefs.useNativeSubtitles === false;
+      refs.nativeCc.checked = prefs.useNativeSubtitles === true;
       syncRenderModeControls();
       refs.size.value = prefs.size || DEFAULT_SUBTITLE_SIZE;
       refs.target.value = (cfg.target || "ZH").toUpperCase();
     }
 
     function readPrefs() {
-      const betaEnabled = !!refs.nativeCc.checked;
-      if (!betaEnabled) {
+      const forceBrowserTrack = !!refs.nativeCc.checked;
+      const nativeCcMode = !forceBrowserTrack;
+      if (forceBrowserTrack) {
         browserModePrefs = {
           bilingual: refs.bilingual.checked,
           reverseOrder: refs.reverseOrder.checked,
@@ -163,11 +171,11 @@
       }
       return {
         enabled: refs.enabled.checked,
-        bilingual: betaEnabled ? true : browserModePrefs.bilingual,
-        reverseOrder: betaEnabled ? false : browserModePrefs.reverseOrder,
+        bilingual: nativeCcMode ? true : browserModePrefs.bilingual,
+        reverseOrder: nativeCcMode ? false : browserModePrefs.reverseOrder,
         browserBilingual: browserModePrefs.bilingual,
         browserReverseOrder: browserModePrefs.reverseOrder,
-        useNativeSubtitles: !betaEnabled,
+        useNativeSubtitles: forceBrowserTrack,
         size: refs.size.value || DEFAULT_SUBTITLE_SIZE,
       };
     }

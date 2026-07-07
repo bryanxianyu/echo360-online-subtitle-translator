@@ -42,6 +42,15 @@ function setupControllerWithRenderer() {
   });
   document.body.innerHTML = "";
   document.head.innerHTML = "";
+  let objectUrlId = 0;
+  Object.defineProperty(URL, "createObjectURL", {
+    value: vi.fn(() => `blob:echo360-test-${++objectUrlId}`),
+    configurable: true,
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    value: vi.fn(),
+    configurable: true,
+  });
 
   const video = makeVideo();
   document.body.appendChild(video);
@@ -97,7 +106,7 @@ function setupControllerWithRenderer() {
   return { ns: window.Echo360Translator, video, domMount };
 }
 
-describe("controller track sync in Echo360 native CC beta mode", () => {
+describe("controller track sync in Echo360 native CC mode", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.restoreAllMocks();
@@ -109,17 +118,20 @@ describe("controller track sync in Echo360 native CC beta mode", () => {
     vi.restoreAllMocks();
   });
 
-  it("does not recreate translated browser tracks when beta DOM mounting fails during periodic sync", async () => {
+  it("falls back to a browser track when native CC DOM mounting fails, and periodic sync does not re-attempt native CC mounting afterwards", async () => {
     const { ns, video, domMount } = setupControllerWithRenderer();
 
     const mounted = ns.renderer.renderTranslatedTrack(TRANS_VTT, ORIG_VTT, true, "medium", false, null, false);
-    expect(mounted).toBe(false);
-    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(0);
+    expect(mounted).toBe(true);
+    expect(domMount).toHaveBeenCalledOnce();
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
 
     await ns.controller.init();
     await vi.advanceTimersByTimeAsync(2400);
 
-    expect(domMount).toHaveBeenCalled();
-    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(0);
+    // A browser track is already showing (the automatic fallback), so
+    // periodic sync should not keep re-attempting the failed native CC mount.
+    expect(domMount).toHaveBeenCalledOnce();
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
   });
 });

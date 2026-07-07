@@ -10,6 +10,42 @@
     return textTracks[0] || null;
   }
 
+  // Echo360's own CC box is rendered through a custom DOM overlay, not the
+  // HTML5 <track>/TextTrack API — video.textTracks stays empty even on
+  // lessons that visibly have a working CC toggle. So the only reliable,
+  // toggle-state-independent signal is the *existence* of the player's own
+  // "Toggle Captions" control: its aria-label/title stay in English
+  // regardless of the page's UI language, while its generated class names
+  // (styled-components hashes) are not stable across Echo360 deployments.
+  function findCaptionToggleButton(video) {
+    const player = video?.closest?.("#player") || document.querySelector("#player") || document;
+    const controls = Array.from(player.querySelectorAll('button, [role="button"]'));
+    return controls.find((el) => {
+      const hint = `${el.getAttribute("aria-label") || ""} ${el.getAttribute("title") || ""}`;
+      return /caption|subtitle/i.test(hint);
+    }) || null;
+  }
+
+  // Whether this video has ANY Echo360-owned caption capability at all —
+  // regardless of whether it is currently toggled on/off. Deliberately
+  // independent of "is a caption box visible right now":
+  //   - A <track>/TextTrack existing (any `mode`), or the player exposing a
+  //     "Toggle Captions" control (any `aria-pressed` state), means the
+  //     lesson genuinely has native CC; if nothing is visible, that's the
+  //     user (or Echo360) having turned it off, not a missing feature.
+  //   - Neither exists (our own translated-track elements are excluded) —
+  //     e.g. a Transcript-only lesson with no synced CC — so DOM injection
+  //     can never succeed no matter how long we wait.
+  function hasNativeCaptionCapability(video) {
+    if (!video) return false;
+    const nativeTrackEls = Array.from(video.querySelectorAll("track[src]")).filter(
+      (t) => !t.hasAttribute("data-echo360-translated")
+    );
+    if (nativeTrackEls.length > 0) return true;
+    if (Array.from(video.textTracks || []).some((t) => !(t.label || "").includes("翻译"))) return true;
+    return !!findCaptionToggleButton(video);
+  }
+
   async function exportVttFromTextTracks(video, timeoutMs = 8000) {
     const tracks = Array.from(video.textTracks || []);
     if (tracks.length === 0) return "";
@@ -296,6 +332,7 @@
 
   ns.sourceFinder = {
     findBestTrackElement,
+    hasNativeCaptionCapability,
     exportVttFromTextTracks,
     collectCandidateSubtitleUrls,
     buildSourceMeta,

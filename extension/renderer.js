@@ -186,7 +186,8 @@
           p.size,
           p.reverseOrder,
           p.sourceMeta || null,
-          p.useNativeSubtitles
+          p.useNativeSubtitles,
+          { browserBilingual: p.browserBilingual, browserReverseOrder: p.browserReverseOrder }
         );
         ns.ui?.setStatusText("已找到匹配视频，字幕已自动显示");
         ns.ui?.updateActionButtons("翻译字幕已加载");
@@ -202,7 +203,8 @@
       lastRenderPrefs.size || DEFAULT_SUBTITLE_SIZE,
       !!lastRenderPrefs.reverseOrder,
       lastRenderSourceMeta,
-      !!lastRenderPrefs.useNativeSubtitles
+      !!lastRenderPrefs.useNativeSubtitles,
+      { browserBilingual: lastRenderPrefs.browserBilingual, browserReverseOrder: lastRenderPrefs.browserReverseOrder }
     );
   }
 
@@ -271,6 +273,16 @@
     renderOptions = {}
   ) {
     const incremental = !!renderOptions.incremental;
+    // Native CC mode forces bilingual=true/reverseOrder=false on its `bilingual`/
+    // `reverseOrder` params (it only ever injects one translated line, so
+    // those controls are disabled while native CC injection is active) - that
+    // forced pair must never leak into a fallback to the browser <track>
+    // renderer, which has its own independent, user-chosen preference. Callers
+    // pass that real preference through renderOptions; fall back to
+    // bilingual/reverseOrder as-is only for callers that don't (so browser-
+    // track-only calls are unaffected).
+    const fallbackBilingual = renderOptions.browserBilingual ?? bilingual;
+    const fallbackReverseOrder = renderOptions.browserReverseOrder ?? reverseOrder;
     const resolvedSourceMeta = sourceMeta || ns.sourceFinder.buildSourceMeta("", originalVtt);
     const video = ns.sourceFinder.pickBestMountVideoByVtt(originalVtt, resolvedSourceMeta);
     if (!video) {
@@ -282,6 +294,8 @@
         reverseOrder: !!reverseOrder,
         sourceMeta: resolvedSourceMeta,
         useNativeSubtitles: !!useNativeSubtitles,
+        browserBilingual: !!fallbackBilingual,
+        browserReverseOrder: !!fallbackReverseOrder,
       };
       return false;
     }
@@ -310,17 +324,19 @@
       size: size || DEFAULT_SUBTITLE_SIZE,
       reverseOrder: !!reverseOrder,
       useNativeSubtitles: !!useNativeSubtitles,
+      browserBilingual: !!fallbackBilingual,
+      browserReverseOrder: !!fallbackReverseOrder,
     };
     lastRenderSourceMeta = resolvedSourceMeta;
 
-    const betaDomMode = bilingual && !useNativeSubtitles;
+    const nativeDomMode = bilingual && !useNativeSubtitles;
     if (!incremental) {
       deactivateTranslatedRenderers();
-    } else if (ns.bilingualDomRenderer?.isMounted() && !betaDomMode) {
+    } else if (ns.bilingualDomRenderer?.isMounted() && !nativeDomMode) {
       ns.bilingualDomRenderer.unmount();
     }
 
-    if (betaDomMode) {
+    if (nativeDomMode) {
       if (incremental && ns.bilingualDomRenderer?.isMounted()) {
         if (ns.bilingualDomRenderer.updateTranslatedVtt({
           originalVtt,
@@ -334,17 +350,32 @@
         return false;
       }
       removeTranslatedTrackElements();
-      if (ns.bilingualDomRenderer?.mount({
+      const mounted = ns.bilingualDomRenderer?.mount({
         video,
         originalVtt,
         translatedVtt: normalizedTranslated,
         size,
         reverseOrder,
-      })) {
+        onNoCaptionCapability: () => {
+          // Fires once, mid-playback, if the per-cue grace period expires
+          // and this lesson turns out to have no native CC at all. Re-render
+          // as a browser <track> for the rest of this session without
+          // touching the saved preference — a different lesson may still
+          // have native CC, so native CC should still be tried again there.
+          console.info("[echo360-translator] no Echo360 native CC on this video; falling back to browser subtitle track");
+          ns.ui?.setStatusText("此课程无 Echo360 原生字幕位，已自动切换为浏览器字幕");
+          renderTranslatedTrack(translatedVtt, originalVtt, fallbackBilingual, size, fallbackReverseOrder, resolvedSourceMeta, true, renderOptions);
+        },
+      });
+      if (mounted) {
         lastTranslatedTrack = { mode: "bilingual-dom" };
         return true;
       }
-      return false;
+      // mount() refused synchronously — most commonly because the
+      // capability pre-check already found no native CC track for this
+      // video. Fall back to the browser <track> renderer immediately
+      // instead of leaving the user with no subtitles at all.
+      return renderTranslatedTrack(translatedVtt, originalVtt, fallbackBilingual, size, fallbackReverseOrder, resolvedSourceMeta, true, renderOptions);
     }
     const nativeState = getOrCreateNativeTrack(video);
     const payloadChanged = nativeState.payload !== payload || !nativeState.track.getAttribute("src");
