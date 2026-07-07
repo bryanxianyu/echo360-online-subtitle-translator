@@ -337,7 +337,17 @@
         // "no capability" signal instead of silently showing nothing forever.
         if (!state.capabilityFallbackFired && !ns.sourceFinder.hasNativeCaptionCapability(state.video)) {
           state.capabilityFallbackFired = true;
+          const stateBeforeCallback = state;
           state.onNoCaptionCapability?.();
+          // The callback commonly re-renders synchronously (e.g. renderer.js
+          // falling back to the browser <track> renderer), which calls this
+          // module's unmount() - and possibly a fresh mount() - before
+          // returning. `state` (the shared module binding, not a local copy)
+          // may now be null or an entirely different mount; either way this
+          // in-flight renderCurrentCue() call was based on a mount that no
+          // longer applies, so bail out instead of dereferencing stale/null
+          // state below.
+          if (state !== stateBeforeCallback) return;
         }
       }
     }

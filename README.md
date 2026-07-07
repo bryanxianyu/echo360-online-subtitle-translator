@@ -4,7 +4,7 @@
 
 用于 Echo360 录播课的 Chrome/Safari 扩展，用来加载并显示翻译字幕；本地 FastAPI 后端保留为开发调试、fallback 和批处理路径。
 
-当前扩展版本：**1.4.3**
+当前扩展版本：**1.4.0**
 
 ## 功能概览
 
@@ -47,9 +47,9 @@
 1. 尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下），外观与原生字幕一致。
    - 1.2.1 起改进了 DOM 匹配与注入时序，可与 Echo360 原生 CC 同帧更新。
    - 1.3.0 起同样支持**边翻译边显示**：通过 `updateTranslatedVtt()` 热更新 cue，无需等整份 VTT。
-   - **1.4.1 性能修复**：1.4.0 把 Beta 设为默认后，`bilingual_dom_renderer.js` 在每个视频帧（`requestVideoFrameCallback`，通常 60Hz+）都会做一次 DOM 子树查询 + `JSON.stringify` 写入调试信息，播放期间持续占用主线程，导致播放器按钮、插件悬浮球动画等全页面卡顿。现改为用已缓存的锚点元素做 O(1) 判断，并把调试信息节流到最多每 250ms 写一次。
-   - **1.4.2 性能修复**：定位到两处与 Beta 无关、只要打开课程页面就会一直跑的开销——① `video.js` 的 `querySelectorAllDeep()`（几乎所有视频/字幕轨查找的底层实现）每次调用都会对整个 `document` 做 `querySelectorAll("*")` 来找 shadow root，而这在每 1.2s 的 `trackSyncTimer` 里每 tick 触发好几次；② `page_probe.js` 每 1.5s 对页面里每个 `<video>` 做一次 React fiber 树的深度遍历（`reactHints`）。这两处都不需要那么高的实时性，现在分别改成带 TTL 缓存（3s）和按需（默认关闭，仅在真正解析字幕源时才做一次深度遍历）。
-   - **1.4.3**：经排查，部分课程播放卡顿的根因其实是 **Echo360 播放器自身**（其 CSS-in-JS 样式在播放过程中持续 `insertRule` + 强制样式重算，与本扩展无关，暂停播放卡顿即消失），这部分无法从扩展侧修复。但扩展自身的悬浮球/控制面板动画（滑入滑出、脉冲提示环）之前是基于 `right`/`box-shadow` 做的，这类属性的动画需要在主线程上逐帧重新布局/绘制——一旦 Echo360 把主线程占满，我们的动画也会跟着一起掉帧。现改为只用 `transform`/`opacity`，交给合成线程处理，即使宿主页面主线程很忙，扩展自己的界面动画也能保持流畅；同时给面板按钮、悬浮球、弹层链接按钮加上了纯 CSS 的按下反馈（`:active` 缩放），点击时不必等待 JS 处理完才有视觉反馈。
+   - **性能**：Beta 设为默认后，`bilingual_dom_renderer.js` 去掉每帧 DOM 子树查询，调试信息节流到 250ms；`video.js` 的 shadow root 扫描改为 3s TTL 缓存；`page_probe.js` 取消定时 `reactHints()` 深度遍历（仅在解析字幕源时按需执行）。
+   - **UI**：部分课程播放卡顿经排查来自 **Echo360 播放器自身**（CSS-in-JS 持续 `insertRule` + 样式重算，暂停即消失，扩展无法修复）。扩展 UI 侧将悬浮球/面板滑入与脉冲动画改为 `transform`/`opacity`（合成线程），并给按钮加 `:active` 按下反馈，避免在宿主页面主线程繁忙时跟着掉帧。
+   - **Bug 修复**：Beta 回退到浏览器字幕轨时正确使用用户保存的 `browserBilingual`/`browserReverseOrder`；`onNoCaptionCapability` 同步触发 `unmount()` 后，`renderCurrentCue()` 不再访问已清空的状态。
 2. `hasNativeCaptionCapability()`（`source_finder.js`）区分"这节课本来就没有原生字幕位"和"用户/Echo360 只是当前没打开 CC"。Echo360 自己的 CC 是通过自定义 DOM 渲染的，并不会往 `video.textTracks` 里塞真实 cue，所以主要信号是播放器控制栏里那颗 **"Toggle Captions" 按钮是否存在**（`aria-label`/`title` 不随界面语言变化，比它当前 `aria-pressed` 状态或易变的生成 class 名更稳定）；`<track>`/`TextTrack` 存在时也算有能力，作为兼容信号一起判断：
    - 播放器控制栏里连"Toggle Captions"按钮都没有，也没有 `<track>`/`TextTrack` → 判定为没有能力，挂载时立刻改用浏览器字幕轨，不会先空等一轮才切换。
    - 按钮存在但当前是关闭状态（`aria-pressed="false"`，一直匹配不到 DOM）→ 视为用户主动选择，保持沉默，不强行覆盖。

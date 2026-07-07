@@ -38,7 +38,8 @@
         prefs.size,
         prefs.reverseOrder,
         renderState.lastRenderSourceMeta,
-        prefs.useNativeSubtitles
+        prefs.useNativeSubtitles,
+        { browserBilingual: prefs.browserBilingual, browserReverseOrder: prefs.browserReverseOrder }
       );
     }
     ns.renderer.applySubtitleVisibility(prefs.enabled);
@@ -114,7 +115,8 @@
           prefs.size,
           prefs.reverseOrder,
           sourceMeta,
-          prefs.useNativeSubtitles
+          prefs.useNativeSubtitles,
+          { browserBilingual: prefs.browserBilingual, browserReverseOrder: prefs.browserReverseOrder }
         );
         loadedCacheKey = cacheEntry.cacheKey || "";
         if (mounted) {
@@ -140,7 +142,12 @@
           prefs.reverseOrder,
           sourceMeta,
           prefs.useNativeSubtitles,
-          { incremental, previewPending: true }
+          {
+            incremental,
+            previewPending: true,
+            browserBilingual: prefs.browserBilingual,
+            browserReverseOrder: prefs.browserReverseOrder,
+          }
         );
         if (!mounted) return false;
         incrementalPreviewMounted = true;
@@ -194,7 +201,11 @@
         prefs.reverseOrder,
         sourceMeta,
         prefs.useNativeSubtitles,
-        { incremental: incrementalPreviewMounted }
+        {
+          incremental: incrementalPreviewMounted,
+          browserBilingual: prefs.browserBilingual,
+          browserReverseOrder: prefs.browserReverseOrder,
+        }
       );
       loadedCacheKey = cacheKey;
       await ns.storage.setCacheStore({

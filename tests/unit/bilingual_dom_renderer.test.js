@@ -33,6 +33,7 @@
  *   P20 onNoCaptionCapability fires once capability is confirmed absent
  *   P21 onNoCaptionCapability stays silent when CC capability exists but is off
  *   P22 onNoCaptionCapability fires at most once per mount
+ *   P23 renderCurrentCue does not throw if onNoCaptionCapability unmounts synchronously
  */
 
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from "vitest";
@@ -553,6 +554,30 @@ describe("native caption capability detection & fallback", () => {
     video.dispatchEvent(new Event("timeupdate"));
 
     expect(onNoCaptionCapability).toHaveBeenCalledOnce();
+  });
+
+  it("P23: does not throw when onNoCaptionCapability synchronously unmounts (real-world renderer.js behavior)", () => {
+    // renderer.js's real onNoCaptionCapability callback re-renders as a
+    // browser <track> synchronously, which calls this module's unmount()
+    // before returning - `state` becomes null mid-way through the still
+    // -running renderCurrentCue() call that triggered the callback.
+    const video = makeVideo(1.0);
+    setupPlayer(video);
+    const onNoCaptionCapability = vi.fn(() => {
+      renderer.unmount();
+    });
+    renderer.mount({
+      video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium", onNoCaptionCapability,
+    });
+
+    // Confirm (as of the grace-period exhaustion check) that capability is
+    // really absent, so the safety-net callback actually fires.
+    window.Echo360Translator.sourceFinder.hasNativeCaptionCapability.mockReturnValue(false);
+    mockNow = 800;
+    expect(() => video.dispatchEvent(new Event("timeupdate"))).not.toThrow();
+
+    expect(onNoCaptionCapability).toHaveBeenCalledOnce();
+    expect(renderer.isMounted()).toBe(false);
   });
 });
 

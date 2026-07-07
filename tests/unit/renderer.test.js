@@ -153,6 +153,48 @@ describe("renderer Echo360 native CC beta mode", () => {
     expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
   });
 
+  it("uses the user's real browser-mode preference (not Beta's forced bilingual=true) when falling back synchronously", () => {
+    // Beta forces bilingual=true/reverseOrder=false on its own params - but
+    // the user's actual saved preference for browser-track mode can be
+    // anything, independently. A naive fallback that reuses Beta's forced
+    // pair would silently force bilingual-on even for a user who explicitly
+    // wants monolingual browser subtitles.
+    const buildBilingualVtt = vi.fn(({ translatedVtt }) => translatedVtt);
+    const { renderer, video } = setupRenderer({ domMountResult: false, buildBilingualVtt });
+
+    const mounted = renderer.renderTranslatedTrack(
+      TRANS_VTT, ORIG_VTT, true, "medium", false, null, false,
+      { browserBilingual: false, browserReverseOrder: false }
+    );
+
+    expect(mounted).toBe(true);
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
+    // renderTranslatedTrack() speculatively builds a bilingual payload from
+    // its *own* bilingual/reverseOrder params before it even knows whether
+    // Beta will succeed - that first (wasted) call reflects Beta's forced
+    // bilingual=true and is unavoidable here. The bug this guards against is
+    // the *fallback* recursion also using that forced true instead of
+    // browserBilingual=false: that would produce a second call, so a fixed
+    // implementation must show exactly one call total, not two.
+    expect(buildBilingualVtt).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the user's real browser-mode preference when the DOM renderer reports no native caption capability at runtime", () => {
+    const buildBilingualVtt = vi.fn(({ translatedVtt, reverseOrder }) => `${translatedVtt}::${reverseOrder}`);
+    const { renderer, getLastMountOpts } = setupRenderer({ domMountResult: true, buildBilingualVtt });
+
+    const mounted = renderer.renderTranslatedTrack(
+      TRANS_VTT, ORIG_VTT, true, "medium", false, null, false,
+      { browserBilingual: true, browserReverseOrder: true }
+    );
+    expect(mounted).toBe(true);
+    buildBilingualVtt.mockClear();
+
+    getLastMountOpts().onNoCaptionCapability();
+
+    expect(buildBilingualVtt).toHaveBeenCalledWith(expect.objectContaining({ reverseOrder: true }));
+  });
+
   it("updates the DOM renderer in place during incremental beta preview refreshes", () => {
     const partialVtt = `WEBVTT
 
