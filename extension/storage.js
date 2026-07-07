@@ -31,7 +31,7 @@
       reverseOrder: false,
       browserBilingual: false,
       browserReverseOrder: false,
-      // Default: prefer Echo360's native CC injection (Beta). It renders with
+      // Default: prefer Echo360 native CC injection. It renders with
       // the platform's own caption look and now matches same-frame latency;
       // bilingual_dom_renderer.js auto-falls back to the browser <track>
       // renderer for lessons that have no native CC track at all, so this

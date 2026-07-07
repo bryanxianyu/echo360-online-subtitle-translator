@@ -457,7 +457,7 @@ describe("native CC disabled / injection unavailable", () => {
 
   it("P11: stays quiet after grace period when injection fails", () => {
     // No native caption element in player means Echo360's own CC is not visible.
-    // The beta renderer must not draw a separate fallback overlay in that state.
+    // The native CC renderer must not draw a separate fallback overlay in that state.
     const video = makeVideo(1.0);
     setupPlayer(video);
     renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });

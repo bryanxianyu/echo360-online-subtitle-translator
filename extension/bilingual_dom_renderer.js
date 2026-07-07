@@ -6,7 +6,8 @@
   const INJECTION_STYLE_ID = "echo360-translator-dom-injection-style";
   const DEBUG_ELEMENT_ID = "echo360-translator-dom-debug";
   // requestVideoFrameCallback re-invokes renderCurrentCue() at the display's
-  // refresh rate (commonly 60-120Hz) for as long as Beta is mounted, i.e.
+  // refresh rate (commonly 60-120Hz) for as long as native CC injection is
+  // mounted, i.e.
   // for the entire video duration. The debug snapshot is only ever read by
   // a human inspecting the DOM, so refreshing it that often buys nothing and
   // just burns main-thread time on JSON.stringify + a DOM write every frame.
@@ -207,8 +208,8 @@
   // Cheap (O(1)) replacement for querying the DOM on every single video
   // frame: we already hold a direct reference to the one element we ever
   // inject into, so checking it directly avoids a subtree query that would
-  // otherwise run at the display's refresh rate for as long as Beta stays
-  // mounted (a major source of the main-thread jank this used to cause).
+  // otherwise run at the display's refresh rate for as long as native CC
+  // injection stays mounted.
   function isInjectedLinePresent() {
     return !!(state?.nativeAnchor?.isConnected && state.nativeAnchor.hasAttribute("data-echo360-translated-line"));
   }
@@ -332,7 +333,8 @@
         state.nativeSearchExhausted = true;
         // Safety net: the mount-time capability pre-check (below) can be a
         // stale/false positive (e.g. Echo360 hadn't wired its <track> yet).
-        // Re-check exactly once, at the point Beta is about to give up on a
+        // Re-check exactly once, at the point native CC injection is about to
+        // give up on a
         // real cue, so a genuinely CC-less lesson still gets a definitive
         // "no capability" signal instead of silently showing nothing forever.
         if (!state.capabilityFallbackFired && !ns.sourceFinder.hasNativeCaptionCapability(state.video)) {
@@ -394,7 +396,7 @@
     const cues = buildCues(originalVtt, translatedVtt);
     if (!video || !player || cues.length === 0) return false;
 
-    // Fast path: skip the whole Beta DOM-injection attempt (and its per-cue
+    // Fast path: skip the whole native CC DOM-injection attempt (and its per-cue
     // grace period) when this video has no Echo360-owned caption track at
     // all. There is nothing for the scanner to ever find, so failing fast
     // here lets the caller fall back to the browser <track> renderer

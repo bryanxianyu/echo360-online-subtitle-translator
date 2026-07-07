@@ -43,7 +43,7 @@
         <span>反转字幕位置</span>
         <input id="echo360-pref-reverse" type="checkbox" />
       </label>
-      <label class="echo360-popover-row" title="默认会把译文注入 Echo360 自带的 CC 字幕位置显示（Beta）；如果本课程没有原生字幕位，会自动切换为浏览器字幕。勾选后始终使用浏览器字幕，不再尝试注入原生 CC。">
+      <label class="echo360-popover-row" title="默认会把译文注入 Echo360 播放器自带的 CC 字幕区域；如果本课程没有原生字幕位，会自动切换为浏览器字幕。勾选后始终使用浏览器字幕，不再尝试注入原生 CC。">
         <span>始终使用浏览器字幕</span>
         <input id="echo360-pref-echo360-native-cc" type="checkbox" />
       </label>
@@ -86,8 +86,8 @@
 
     function syncRenderModeControls() {
       // Bilingual/reverse-order/size only apply to the browser <track>
-      // renderer: Beta always injects a single translated line into
-      // Echo360's own caption box, so those controls are only meaningful
+      // renderer: native CC injection always adds a single translated line
+      // into Echo360's own caption box, so those controls are only meaningful
       // (and editable) when "始终使用浏览器字幕" is checked.
       const disabled = !refs.nativeCc.checked;
       refs.bilingual.disabled = disabled;
@@ -125,7 +125,7 @@
     refs.reverseOrder.addEventListener("change", () => handlers.onPrefsChanged?.());
     refs.nativeCc.addEventListener("change", () => {
       if (!refs.nativeCc.checked) {
-        // Switching into Beta (checkbox unchecked): snapshot the current
+        // Switching into native CC mode (checkbox unchecked): snapshot the
         // browser-mode values before their controls become disabled, so
         // they can be restored if the user switches back later.
         browserModePrefs = {
@@ -162,7 +162,7 @@
 
     function readPrefs() {
       const forceBrowserTrack = !!refs.nativeCc.checked;
-      const betaEnabled = !forceBrowserTrack;
+      const nativeCcMode = !forceBrowserTrack;
       if (forceBrowserTrack) {
         browserModePrefs = {
           bilingual: refs.bilingual.checked,
@@ -171,8 +171,8 @@
       }
       return {
         enabled: refs.enabled.checked,
-        bilingual: betaEnabled ? true : browserModePrefs.bilingual,
-        reverseOrder: betaEnabled ? false : browserModePrefs.reverseOrder,
+        bilingual: nativeCcMode ? true : browserModePrefs.bilingual,
+        reverseOrder: nativeCcMode ? false : browserModePrefs.reverseOrder,
         browserBilingual: browserModePrefs.bilingual,
         browserReverseOrder: browserModePrefs.reverseOrder,
         useNativeSubtitles: forceBrowserTrack,

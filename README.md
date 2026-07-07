@@ -11,10 +11,12 @@
 1. 在当前 Echo360 录播课页面中寻找 VTT 字幕源（播放器 CC、网络抓取、`transcript-file` API 等）。
 2. 默认通过扩展前端直连翻译服务（`direct_translator.js`）；dev 构建也可以发送到本地后端。
 3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本作为 fallback/批处理工具：
-   `translator/translate_vtt_zh_deepl_native.py`
-4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；默认优先注入 Echo360 原生 CC（Beta），本课程没有原生字幕位时自动回退到浏览器 `<track>` 字幕轨。
+  `translator/translate_vtt_zh_deepl_native.py`
+4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；默认优先注入 Echo360 原生 CC，本课程没有原生字幕位时自动回退到浏览器 `<track>` 字幕轨。
 5. **边翻译边显示**（1.3.0）：点击翻译后立即挂载字幕，未完成的 cue 显示 `正在翻译中...`，随批次完成逐步替换为译文。
 6. **按 provider 分别保存 API Key**；popup 与 options 页实时同步，切换 provider 时自动带出对应 Key。
+
+
 
 ## 字幕源发现
 
@@ -23,7 +25,7 @@
 - 播放器已挂载的 CC / `<track>` VTT
 - 页面探针与网络层抓到的 VTT URL
 - **Transcript 面板专用路径**（1.2.2）：当播放器没有可用 CC 时，调用  
-  `/api/ui/echoplayer/lessons/{lessonId}/medias/{mediaId}/transcript-file?format=vtt`
+`/api/ui/echoplayer/lessons/{lessonId}/medias/{mediaId}/transcript-file?format=vtt`
 
 若所有策略都失败，控制面板会提示「未找到可用字幕源」。
 
@@ -40,26 +42,28 @@
 - 增量预览目前仅支持扩展内直连翻译（`direct_translator.js` → background job）；本地 FastAPI 后端路径仍等整份 VTT 返回后再显示。
 - 命中本地翻译缓存时直接显示完整字幕，不会走增量流程。
 
+
+
 ## 字幕渲染方式
 
-默认策略（1.4.0 起）是 **Beta 优先、浏览器字幕轨兜底**（`renderer.js` + `bilingual_dom_renderer.js`）：
+默认策略（1.4.0 起）是 **Echo360 原生 CC 优先、浏览器字幕轨兜底**（`renderer.js` + `bilingual_dom_renderer.js`）：
 
 1. 尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下），外观与原生字幕一致。
-   - 1.2.1 起改进了 DOM 匹配与注入时序，可与 Echo360 原生 CC 同帧更新。
-   - 1.3.0 起同样支持**边翻译边显示**：通过 `updateTranslatedVtt()` 热更新 cue，无需等整份 VTT。
-   - **性能**：Beta 设为默认后，`bilingual_dom_renderer.js` 去掉每帧 DOM 子树查询，调试信息节流到 250ms；`video.js` 的 shadow root 扫描改为 3s TTL 缓存；`page_probe.js` 取消定时 `reactHints()` 深度遍历（仅在解析字幕源时按需执行）。
-   - **UI**：部分课程播放卡顿经排查来自 **Echo360 播放器自身**（CSS-in-JS 持续 `insertRule` + 样式重算，暂停即消失，扩展无法修复）。扩展 UI 侧将悬浮球/面板滑入与脉冲动画改为 `transform`/`opacity`（合成线程），并给按钮加 `:active` 按下反馈，避免在宿主页面主线程繁忙时跟着掉帧。
-   - **Bug 修复**：Beta 回退到浏览器字幕轨时正确使用用户保存的 `browserBilingual`/`browserReverseOrder`；`onNoCaptionCapability` 同步触发 `unmount()` 后，`renderCurrentCue()` 不再访问已清空的状态。
+  - 1.2.1 起改进了 DOM 匹配与注入时序，可与 Echo360 原生 CC 同帧更新。
+  - 1.3.0 起同样支持**边翻译边显示**：通过 `updateTranslatedVtt()` 热更新 cue，无需等整份 VTT。
+  - **性能**：原生 CC 设为默认后，`bilingual_dom_renderer.js` 去掉每帧 DOM 子树查询，调试信息节流到 250ms；`video.js` 的 shadow root 扫描改为 3s TTL 缓存；`page_probe.js` 取消定时 `reactHints()` 深度遍历（仅在解析字幕源时按需执行）。
+  - **UI**：部分课程播放卡顿经排查来自 **Echo360 播放器自身**（CSS-in-JS 持续 `insertRule` + 样式重算，暂停即消失，扩展无法修复）。扩展 UI 侧将悬浮球/面板滑入与脉冲动画改为 `transform`/`opacity`（合成线程），并给按钮加 `:active` 按下反馈，避免在宿主页面主线程繁忙时跟着掉帧。
+  - **Bug 修复**：原生 CC 回退到浏览器字幕轨时正确使用用户保存的 `browserBilingual`/`browserReverseOrder`；`onNoCaptionCapability` 同步触发 `unmount()` 后，`renderCurrentCue()` 不再访问已清空的状态。
 2. `hasNativeCaptionCapability()`（`source_finder.js`）区分"这节课本来就没有原生字幕位"和"用户/Echo360 只是当前没打开 CC"。Echo360 自己的 CC 是通过自定义 DOM 渲染的，并不会往 `video.textTracks` 里塞真实 cue，所以主要信号是播放器控制栏里那颗 **"Toggle Captions" 按钮是否存在**（`aria-label`/`title` 不随界面语言变化，比它当前 `aria-pressed` 状态或易变的生成 class 名更稳定）；`<track>`/`TextTrack` 存在时也算有能力，作为兼容信号一起判断：
-   - 播放器控制栏里连"Toggle Captions"按钮都没有，也没有 `<track>`/`TextTrack` → 判定为没有能力，挂载时立刻改用浏览器字幕轨，不会先空等一轮才切换。
-   - 按钮存在但当前是关闭状态（`aria-pressed="false"`，一直匹配不到 DOM）→ 视为用户主动选择，保持沉默，不强行覆盖。
-   - 兜底：即使挂载时误判为"有能力"，每个 cue 的匹配宽限期结束后仍会再确认一次，一旦确认没有能力会自动切到浏览器字幕轨（这次切换不会写入已保存的偏好，下节课依然优先尝试 Beta）。
+  - 播放器控制栏里连"Toggle Captions"按钮都没有，也没有 `<track>`/`TextTrack` → 判定为没有能力，挂载时立刻改用浏览器字幕轨，不会先空等一轮才切换。
+  - 按钮存在但当前是关闭状态（`aria-pressed="false"`，一直匹配不到 DOM）→ 视为用户主动选择，保持沉默，不强行覆盖。
+  - 兜底：即使挂载时误判为"有能力"，每个 cue 的匹配宽限期结束后仍会再确认一次，一旦确认没有能力会自动切到浏览器字幕轨（这次切换不会写入已保存的偏好，下节课依然优先尝试原生 CC）。
 
 可以在设置 popover 勾选 **始终使用浏览器字幕**（`ui_popover.js`）来关闭上述自动尝试，强制只用浏览器 `<track>` 字幕轨：
 
 - 单语模式直接挂载翻译 VTT。
 - 双语模式由 `subtitle_strategy.js` 按浏览器选择策略：Safari 使用单 cue 双语 VTT，Chrome / Edge 等使用分 cue 双语 VTT。
-- 双语、顺序、大小等选项仅在此模式下可编辑；Beta 模式下这些选项会被强制为双语、非 reverse 顺序。
+- 双语、顺序、大小等选项仅在此模式下可编辑；原生 CC 模式下这些选项会被强制为双语、非 reverse 顺序。
 
 切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。
 
@@ -85,8 +89,8 @@ subtitle_strategy.js      浏览器检测与双语 VTT 构建策略
 storage.js                配置、偏好和本地字幕缓存
 video.js                  Echo360 视频发现、media-id 线索和页面探针桥接
 source_finder.js          字幕源发现（含 transcript-file API）和字幕到视频匹配
-bilingual_dom_renderer.js Echo360 原生 CC DOM 双语注入（Beta）
-renderer.js               浏览器字幕 track / Beta DOM 渲染编排与 cue 样式
+bilingual_dom_renderer.js Echo360 原生 CC DOM 双语注入
+renderer.js               浏览器字幕 track / 原生 CC DOM 渲染编排与 cue 样式
 direct_translator.js      扩展内直连翻译与 partial VTT 回调（store 默认路径）
 ui.js                     页面 UI 门面（组装 ball / panel / popover / onboarding）
 ui_ball.js                右下角收纳球入口
@@ -102,6 +106,8 @@ page_probe.js             MAIN world 的 Echo360/React/XHR 探针
 background.js             service worker（直连翻译 job 与 partial_vtt 存储）
 popup.js / options.js     扩展弹窗与选项页
 ```
+
+
 
 ## 后端启动
 
@@ -143,6 +149,8 @@ Windows (PowerShell) 健康检查：
 Invoke-WebRequest http://127.0.0.1:8765/health
 ```
 
+
+
 ## 扩展安装
 
 1. 打开 `chrome://extensions`。
@@ -167,6 +175,7 @@ npm run build:store
 ```
 
 构建产物：
+
 - `dist/extension-store/`
 - `dist/echo360-online-subtitle-translator-store.zip`
 
@@ -211,6 +220,7 @@ npm run test:coverage
 目标语言选项：`ZH`、`ZH-HK`、`YUE`、`EN`、`JA`、`KO`、`FR`、`DE`、`ES`、`IT`、`PT`、`RU`、`AR`、`HI`。
 
 Chrome 商店版的高级翻译参数只显示与当前 provider 相关的设置：
+
 - OpenAI: `Reasoning Effort`
 - DeepSeek: `DeepSeek Thinking`（默认关闭，减少延迟）
 - Gemini: 默认模型 `gemini-3.1-flash-lite`
@@ -219,14 +229,18 @@ Chrome 商店版的高级翻译参数只显示与当前 provider 相关的设置
 dev 构建会额外保留本地后端调试参数，例如 `maxParagraphs`、`maxChars`、`concurrency`、`rps`、`retries`、`timeout`、`fallbackMode`、`repairConcurrency` 和 `slowSplitThreshold`。
 
 语言补充：
+
 - 当 provider 为 `deepl` 时，不支持 `YUE`（请使用 AI provider，如 `deepseek`/`openai`/`gemini`）
 
 Google Translate provider：
+
 - `google-web` 使用非官方网页端接口，不需要 API key，适合首次安装后快速试用
 - store 构建会由扩展前端直接请求；dev 构建可选择通过本地后端转发
 - 后端/脚本路径会自动使用 `concurrency=96, max_chars=1200, max_paragraphs=10`
 - 该接口非官方，稳定性、可用性和翻译质量不保证
 - 如果重视字幕翻译质量，建议改用 AI/API provider（如 `deepseek`/`openai`/`gemini`/`deepl`）并填写自己的 API Key
+
+
 
 ## 隐私
 
@@ -280,3 +294,4 @@ export TRANSLATOR_PYTHON_BIN=/absolute/path/to/python
 - 如果录播存在独立开场片段，扩展会优先使用强 media-id 映射，其次使用 timeline/state 兜底匹配。
 - 仅 Transcript 面板、无播放器 CC 的课时依赖 `transcript-file` API（1.2.2）；这类页面没有 Echo360 原生 CC DOM 可注入，会被 `hasNativeCaptionCapability()` 判定为无能力并直接使用浏览器字幕轨。
 - 增量预览的 partial VTT 由 `direct_translator.js` 每批产出并经 `background.js` job 轮询；`buildIncrementalPreviewVtt()` 负责把未译 cue 替换为占位文案。
+

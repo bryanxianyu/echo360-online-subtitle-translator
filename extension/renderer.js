@@ -273,13 +273,14 @@
     renderOptions = {}
   ) {
     const incremental = !!renderOptions.incremental;
-    // Beta mode forces bilingual=true/reverseOrder=false on its `bilingual`/
+    // Native CC mode forces bilingual=true/reverseOrder=false on its `bilingual`/
     // `reverseOrder` params (it only ever injects one translated line, so
-    // those controls are disabled while Beta is active) - that forced pair
-    // must never leak into a fallback to the browser <track> renderer, which
-    // has its own independent, user-chosen preference. Callers pass that real
-    // preference through renderOptions; fall back to bilingual/reverseOrder
-    // as-is only for callers that don't (so non-Beta calls are unaffected).
+    // those controls are disabled while native CC injection is active) - that
+    // forced pair must never leak into a fallback to the browser <track>
+    // renderer, which has its own independent, user-chosen preference. Callers
+    // pass that real preference through renderOptions; fall back to
+    // bilingual/reverseOrder as-is only for callers that don't (so browser-
+    // track-only calls are unaffected).
     const fallbackBilingual = renderOptions.browserBilingual ?? bilingual;
     const fallbackReverseOrder = renderOptions.browserReverseOrder ?? reverseOrder;
     const resolvedSourceMeta = sourceMeta || ns.sourceFinder.buildSourceMeta("", originalVtt);
@@ -328,14 +329,14 @@
     };
     lastRenderSourceMeta = resolvedSourceMeta;
 
-    const betaDomMode = bilingual && !useNativeSubtitles;
+    const nativeDomMode = bilingual && !useNativeSubtitles;
     if (!incremental) {
       deactivateTranslatedRenderers();
-    } else if (ns.bilingualDomRenderer?.isMounted() && !betaDomMode) {
+    } else if (ns.bilingualDomRenderer?.isMounted() && !nativeDomMode) {
       ns.bilingualDomRenderer.unmount();
     }
 
-    if (betaDomMode) {
+    if (nativeDomMode) {
       if (incremental && ns.bilingualDomRenderer?.isMounted()) {
         if (ns.bilingualDomRenderer.updateTranslatedVtt({
           originalVtt,
@@ -360,7 +361,7 @@
           // and this lesson turns out to have no native CC at all. Re-render
           // as a browser <track> for the rest of this session without
           // touching the saved preference — a different lesson may still
-          // have native CC, so Beta should still be tried again there.
+          // have native CC, so native CC should still be tried again there.
           console.info("[echo360-translator] no Echo360 native CC on this video; falling back to browser subtitle track");
           ns.ui?.setStatusText("此课程无 Echo360 原生字幕位，已自动切换为浏览器字幕");
           renderTranslatedTrack(translatedVtt, originalVtt, fallbackBilingual, size, fallbackReverseOrder, resolvedSourceMeta, true, renderOptions);

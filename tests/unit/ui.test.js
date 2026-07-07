@@ -37,7 +37,7 @@ describe("settings popover render mode controls", () => {
     vi.restoreAllMocks();
   });
 
-  it("restores browser subtitle checkboxes after toggling into Echo360 native CC beta and back to forced browser track", async () => {
+  it("restores browser subtitle checkboxes after toggling into Echo360 native CC mode and back to forced browser track", async () => {
     setupUi({
       enabled: true,
       bilingual: false,
@@ -56,7 +56,7 @@ describe("settings popover render mode controls", () => {
     expect(bilingual.disabled).toBe(false);
     expect(reverseOrder.disabled).toBe(false);
 
-    // Uncheck "始终使用浏览器字幕" → switch into Beta; browser-mode controls
+    // Uncheck "始终使用浏览器字幕" → switch into native CC mode; browser-mode controls
     // become disabled but keep showing their last known values.
     changeCheckbox("echo360-pref-echo360-native-cc", false);
     expect(bilingual.disabled).toBe(true);
@@ -79,7 +79,7 @@ describe("settings popover render mode controls", () => {
     expect(document.getElementById("echo360-pref-size").style.filter).toBe("");
   });
 
-  it("readPanelPrefs saves beta effective values separately from browser subtitle prefs", async () => {
+  it("readPanelPrefs saves native CC effective values separately from browser subtitle prefs", async () => {
     setupUi({
       enabled: true,
       bilingual: false,
@@ -91,7 +91,7 @@ describe("settings popover render mode controls", () => {
     });
     await openSettings();
 
-    // Uncheck "始终使用浏览器字幕" → switch into Beta.
+    // Uncheck "始终使用浏览器字幕" → switch into native CC mode.
     changeCheckbox("echo360-pref-echo360-native-cc", false);
     const prefs = window.Echo360Translator.ui.readPanelPrefs();
 
@@ -102,7 +102,7 @@ describe("settings popover render mode controls", () => {
     expect(prefs.browserReverseOrder).toBe(true);
   });
 
-  it("shows saved browser subtitle checkbox states and disables them when Echo360 native CC beta is active", async () => {
+  it("shows saved browser subtitle checkbox states and disables them when Echo360 native CC mode is active", async () => {
     setupUi({
       enabled: true,
       bilingual: true,

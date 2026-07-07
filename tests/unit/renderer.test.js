@@ -92,7 +92,7 @@ function setupRenderer({ domMountResult = true, buildBilingualVtt } = {}) {
   };
 }
 
-describe("renderer Echo360 native CC beta mode", () => {
+describe("renderer Echo360 native CC mode", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -153,10 +153,10 @@ describe("renderer Echo360 native CC beta mode", () => {
     expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
   });
 
-  it("uses the user's real browser-mode preference (not Beta's forced bilingual=true) when falling back synchronously", () => {
-    // Beta forces bilingual=true/reverseOrder=false on its own params - but
+  it("uses the user's real browser-mode preference (not native CC's forced bilingual=true) when falling back synchronously", () => {
+    // Native CC mode forces bilingual=true/reverseOrder=false on its own params - but
     // the user's actual saved preference for browser-track mode can be
-    // anything, independently. A naive fallback that reuses Beta's forced
+    // anything, independently. A naive fallback that reuses native CC's forced
     // pair would silently force bilingual-on even for a user who explicitly
     // wants monolingual browser subtitles.
     const buildBilingualVtt = vi.fn(({ translatedVtt }) => translatedVtt);
@@ -171,7 +171,7 @@ describe("renderer Echo360 native CC beta mode", () => {
     expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
     // renderTranslatedTrack() speculatively builds a bilingual payload from
     // its *own* bilingual/reverseOrder params before it even knows whether
-    // Beta will succeed - that first (wasted) call reflects Beta's forced
+    // native CC will succeed - that first (wasted) call reflects native CC's forced
     // bilingual=true and is unavoidable here. The bug this guards against is
     // the *fallback* recursion also using that forced true instead of
     // browserBilingual=false: that would produce a second call, so a fixed
@@ -195,7 +195,7 @@ describe("renderer Echo360 native CC beta mode", () => {
     expect(buildBilingualVtt).toHaveBeenCalledWith(expect.objectContaining({ reverseOrder: true }));
   });
 
-  it("updates the DOM renderer in place during incremental beta preview refreshes", () => {
+  it("updates the DOM renderer in place during incremental native CC preview refreshes", () => {
     const partialVtt = `WEBVTT
 
 00:00:00.000 --> 00:00:02.000
