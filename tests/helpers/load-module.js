@@ -141,12 +141,25 @@ export function loadUiModules() {
   }
 }
 
-/** Minimal mock for extensionApi.storage.local backed by a plain object. */
+/**
+ * Minimal mock for extensionApi.storage.local backed by a plain object.
+ * Mirrors chrome.storage.local.get's real signature: a single key, an array
+ * of keys, or null/undefined to fetch the entire store (used by storage.js's
+ * one-time legacy-prefs migration scan).
+ */
 export function makeStorageMock(initial = {}) {
   const store = { ...initial };
   return {
     _store: store,
-    get: vi.fn(async (key) => ({ [key]: store[key] })),
+    get: vi.fn(async (key) => {
+      if (key === null || key === undefined) return { ...store };
+      if (Array.isArray(key)) {
+        const result = {};
+        for (const k of key) if (k in store) result[k] = store[k];
+        return result;
+      }
+      return { [key]: store[key] };
+    }),
     set: vi.fn(async (items) => { Object.assign(store, items); }),
     remove: vi.fn(async (key) => { delete store[key]; }),
   };

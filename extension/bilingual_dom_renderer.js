@@ -12,6 +12,39 @@
   // a human inspecting the DOM, so refreshing it that often buys nothing and
   // just burns main-thread time on JSON.stringify + a DOM write every frame.
   const DEBUG_PUBLISH_THROTTLE_MS = 250;
+  // requestVideoFrameCallback fires at the rate the video actually presents
+  // frames, which on a high-refresh-rate display (120/144Hz+) can be far
+  // more often than a human can perceive a subtitle updating. Left
+  // unthrottled, every one of those extra callbacks pays for a full
+  // player-subtree scan while a cue hasn't been matched yet (e.g. right
+  // after seeking, or during fast playback where cues change quickly in
+  // real time) - competing with the browser's own rendering work for
+  // main-thread time. Under load this backlog compounds: rVFC/timeupdate
+  // callbacks queue up faster than they can run, so by the time one finally
+  // executes, currentTime (especially at 2x+ speed) has already moved into
+  // a *later* cue, which restarts the search-and-retry cycle again -
+  // carrying the lag into several subsequent cues instead of just the one
+  // that was jumped to. 30Hz is comfortably faster than any human can
+  // notice a subtitle lag, while cutting the worst case (144Hz) down to
+  // roughly a fifth as many scan attempts. timeupdate/seeked/play and the
+  // MutationObserver path are untouched by this and keep reacting
+  // immediately - only the "just checking again in case nothing changed"
+  // rVFC loop is capped.
+  const NATIVE_RENDER_FRAME_THROTTLE_MS = 33;
+  // If the host page's own main thread stalls for a while (e.g. Echo360's
+  // player doing heavy work of its own around a seek - WebGL/audio
+  // reinit, style recalculation, etc.), every callback on this page,
+  // including our own, is delayed by the same amount; there is nothing we
+  // can do to run *during* that stall. What we CAN do is notice, once the
+  // thread frees up, that a lot more real time passed than we actually got
+  // a chance to search in, and extend the per-cue grace period by exactly
+  // that much - so a cue doesn't get unfairly marked "exhausted" (and its
+  // translation blanked) purely because the host page froze, rather than
+  // because there really was no matching native caption to find. Set well
+  // above the normal call cadence (rVFC is throttled to ~33ms, timeupdate
+  // fires at least every ~250ms) so ordinary gaps between triggers are
+  // never mistaken for a stall.
+  const NATIVE_STALL_GAP_THRESHOLD_MS = 1000;
   let state = null;
   let lastDebugPublishAt = -Infinity;
 
@@ -158,6 +191,14 @@
       return state.nativeAnchor;
     }
 
+    // Diagnostics: every full player-subtree scan is timed and counted so
+    // getDebugState() can surface *why* injection is lagging on a given
+    // machine/browser - a slow scan (large/deep player DOM, or Echo360's own
+    // style recalcs making getBoundingClientRect/getComputedStyle expensive)
+    // looks very different from "too many scan attempts" (high rvfcFrameCount
+    // vs rvfcRenderCount, or many scanCount entries within one cue's grace
+    // period) and needs a different fix.
+    const scanStart = performance.now();
     const elements = Array.from(state.player.querySelectorAll("*"));
     const playerRect = state.player.getBoundingClientRect();
     let best = null;
@@ -182,12 +223,38 @@
       if (!best || score > best.score) best = { element, score };
     }
 
+    const scanDurationMs = performance.now() - scanStart;
+    state.scanCount += 1;
+    state.scanTotalMs += scanDurationMs;
+    state.lastScanMs = scanDurationMs;
+    state.lastScanElementCount = elements.length;
+
     return best?.element || null;
   }
 
   function mutationCouldAffectActiveCaption(mutations) {
     if (!state) return false;
     if (state.nativeAnchor && !state.nativeAnchor.isConnected) return true;
+    if (mutations.length === 0) return false;
+    // While the current cue hasn't been matched yet, don't pre-filter by
+    // text at all: right after a seek/stall, Echo360 often needs a moment to
+    // catch its own caption box up to the *actual* current position, and in
+    // the meantime it may render several cues *behind* whatever cue we're
+    // currently looking for (real time keeps advancing - especially at 2x+
+    // speed - while Echo360 is still working through the backlog). Filtering
+    // by "does this mutation's text match the cue we expect right now" would
+    // reject all of those as irrelevant and only resync once Echo360 fully
+    // catches up to the exact cue we're on *at that later moment* - visibly
+    // stretching the lag across every cue in between. Reacting to any DOM
+    // change here instead just means an extra renderCurrentCue() call (and,
+    // if still unmatched, a full scan - measured at ~1ms in practice) during
+    // the comparatively brief window before a match is found; once matched,
+    // the text-probe filter below takes back over so unrelated player churn
+    // (progress bar ticks, etc.) doesn't trigger a scan on every mutation for
+    // the rest of the cue.
+    if (state.lastCueIndex >= 0 && state.nativeInjectedCueIndex !== state.lastCueIndex && !state.nativeSearchExhausted) {
+      return true;
+    }
     const cue = state.lastCueIndex >= 0 ? state.cues[state.lastCueIndex] : null;
     const source = normalizeText(cue?.source || "");
     if (!source) return false;
@@ -287,6 +354,21 @@
 
   function renderCurrentCue() {
     if (!state || !ensureAttached()) return;
+    const now = performance.now();
+    const gapSinceLastRender = now - state.lastRenderAt;
+    state.lastRenderAt = now;
+    if (gapSinceLastRender > NATIVE_STALL_GAP_THRESHOLD_MS) {
+      // The host page's main thread was unavailable to us for a while (see
+      // NATIVE_STALL_GAP_THRESHOLD_MS above) - push the current cue's grace
+      // period back by exactly how much time we lost, so it gets the same
+      // *effective* search window it would have had if the stall never
+      // happened, instead of being penalized for time we were never able to
+      // use.
+      state.nativeCaptionWaitUntil += gapSinceLastRender;
+      state.stallCount += 1;
+      state.lastStallGapMs = Math.round(gapSinceLastRender);
+      state.totalStallMs += gapSinceLastRender;
+    }
     const index = findCueIndex(Number(state.video.currentTime || 0));
     const injectedStillPresent = isInjectedLinePresent();
     if (index === state.lastCueIndex && state.nativeInjectedCueIndex === index && injectedStillPresent) {
@@ -296,8 +378,14 @@
     if (index !== state.lastCueIndex) {
       state.lastCueIndex = index;
       state.nativeInjectedCueIndex = -2;
-      state.nativeCaptionWaitUntil = performance.now() + NATIVE_CAPTION_GRACE_MS;
+      state.nativeCaptionWaitUntil = now + NATIVE_CAPTION_GRACE_MS;
       state.nativeSearchExhausted = false;
+      // Diagnostics: marks the moment this cue became "current" (via
+      // timeupdate/seeked/rVFC), so the latency recorded below on a
+      // successful match measures the full user-visible delay - including
+      // any time lost to a backlogged main thread - not just the final
+      // scan's own duration.
+      state.cueChangedAt = now;
     } else if (state.nativeInjectedCueIndex === index && !injectedStillPresent) {
       // Echo360 swapped/removed the caption node without a cue change (e.g. it
       // re-renders its own box mid-cue). Force an immediate re-match instead of
@@ -319,11 +407,15 @@
     // for the whole video), stop scanning altogether until a real DOM
     // mutation or cue change gives a reason to look again - otherwise this
     // would scan the entire player subtree on every video frame forever.
-    const now = performance.now();
     const shouldSearchNative = !!cue && state.nativeInjectedCueIndex !== index && !state.nativeSearchExhausted;
     if (shouldSearchNative && injectIntoNativeCaption(cue)) {
       state.nativeInjectedCueIndex = index;
       state.nativeInjectionHits += 1;
+      // Diagnostics: user-visible "how long after this cue started did the
+      // translation actually appear" - the number to watch when diagnosing
+      // reports of injection lagging behind after a seek.
+      state.injectionLatencies.push({ cueIndex: index, latencyMs: Math.round(now - state.cueChangedAt) });
+      if (state.injectionLatencies.length > 30) state.injectionLatencies.shift();
       publishDebugState();
       return;
     }
@@ -368,7 +460,20 @@
   function scheduleVideoFrame() {
     if (!state || typeof state.video.requestVideoFrameCallback !== "function") return;
     state.frameHandle = state.video.requestVideoFrameCallback(() => {
-      renderCurrentCue();
+      // Diagnostics: rvfcFrameCount tracks how often the browser actually
+      // presents a video frame (i.e. roughly the effective display/decode
+      // rate); rvfcRenderCount tracks how many of those actually passed the
+      // throttle and triggered a render. A large gap between the two
+      // confirms the throttle is doing its job on a high refresh-rate
+      // display; if the gap is small but lag persists, the bottleneck is
+      // scan cost (see scanCount/lastScanMs), not trigger frequency.
+      state.rvfcFrameCount += 1;
+      const now = performance.now();
+      if (now - state.lastFrameRenderAt >= NATIVE_RENDER_FRAME_THROTTLE_MS) {
+        state.lastFrameRenderAt = now;
+        state.rvfcRenderCount += 1;
+        renderCurrentCue();
+      }
       scheduleVideoFrame();
     });
   }
@@ -422,8 +527,26 @@
       capabilityFallbackFired: false,
       listeners: [],
       frameHandle: null,
+      lastFrameRenderAt: -Infinity,
+      // Initialized to "now" (not -Infinity/0) so the very first
+      // renderCurrentCue() call right below doesn't compute a huge fake gap
+      // and mistake mount() itself for a host-page stall.
+      lastRenderAt: performance.now(),
       mutationObserver: null,
       handlingMutation: false,
+      // Diagnostics only (see getDebugState()); none of these affect
+      // matching/injection behavior.
+      scanCount: 0,
+      scanTotalMs: 0,
+      lastScanMs: 0,
+      lastScanElementCount: 0,
+      rvfcFrameCount: 0,
+      rvfcRenderCount: 0,
+      cueChangedAt: 0,
+      injectionLatencies: [],
+      stallCount: 0,
+      lastStallGapMs: 0,
+      totalStallMs: 0,
     };
 
     for (const eventName of ["timeupdate", "seeked", "play", "loadedmetadata"]) {
@@ -476,6 +599,38 @@
       nativeSearchExhausted: state.nativeSearchExhausted,
       playerAttached: state.player.isConnected,
       nativeAnchor: state.nativeAnchorDebug,
+      // --- perf diagnostics (added to debug injection lag reports) ---
+      playbackRate: state.video.playbackRate,
+      // How many full player-subtree scans have run, their cost, and how
+      // big the scanned subtree is. High lastScanMs/avgScanMs with a normal
+      // element count points at expensive layout/style reads (e.g. Echo360's
+      // own CSS-in-JS churn); a very large lastScanElementCount points at
+      // the player DOM itself being the bottleneck.
+      scanCount: state.scanCount,
+      lastScanMs: Math.round(state.lastScanMs * 100) / 100,
+      avgScanMs: state.scanCount ? Math.round((state.scanTotalMs / state.scanCount) * 100) / 100 : 0,
+      lastScanElementCount: state.lastScanElementCount,
+      // How often requestVideoFrameCallback actually fires vs. how many of
+      // those firings passed the throttle and triggered a render. A big gap
+      // confirms the throttle is absorbing a high-refresh-rate storm; if the
+      // gap is small but lag persists, the bottleneck is scan cost instead.
+      rvfcFrameCount: state.rvfcFrameCount,
+      rvfcRenderCount: state.rvfcRenderCount,
+      // How many times a gap of more than NATIVE_STALL_GAP_THRESHOLD_MS was
+      // observed between two renderCurrentCue() calls - i.e. how many times
+      // the *host page's own main thread* (not this extension) was
+      // unavailable to us for a long stretch, and how long in total. A
+      // nonzero count here, especially one that lines up with when the
+      // reported lag happened, points at the host page (Echo360's player)
+      // stalling the shared main thread rather than anything in this scan/
+      // injection code.
+      stallCount: state.stallCount,
+      lastStallGapMs: state.lastStallGapMs,
+      totalStallMs: Math.round(state.totalStallMs),
+      // Wall-clock time from "this cue became current" to "translation was
+      // actually injected", for the last 30 successful matches - the direct
+      // measurement of the lag being reported.
+      recentInjectionLatenciesMs: state.injectionLatencies.slice(-30),
     };
   }
 

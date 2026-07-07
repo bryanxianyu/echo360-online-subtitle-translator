@@ -13,6 +13,8 @@
  *     P6 – size is always one of the valid SIZE_MAP keys after getPrefs
  *     P7 – Echo360 native CC mode forces bilingual=true, reverseOrder=false
  *     P8 – useNativeSubtitles=true preserves bilingual/reverseOrder booleans
+ *     P11 – prefs saved on one lesson pathname are read back identically on
+ *           any other lesson pathname (prefs are global, not per-lesson)
  *
  *   getContextKey
  *     P9 – result always contains "::"
@@ -170,7 +172,7 @@ describe("getPrefs / savePrefs properties", () => {
       fc.asyncProperty(invalidSizes, async (badSize) => {
         const { storage } = setupStorage({
           storageData: {
-            "echo360TranslatorPrefs::echo360.org::test-id": {
+            "echo360TranslatorPrefs::global": {
               enabled: true,
               bilingual: false,
               reverseOrder: false,
@@ -222,6 +224,31 @@ describe("getPrefs / savePrefs properties", () => {
         expect(loaded.bilingual).toBe(bilingual);
         expect(loaded.reverseOrder).toBe(reverseOrder);
         expect(loaded.useNativeSubtitles).toBe(true);
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it("P11 – prefs saved on one lesson pathname are read back identically on any other lesson pathname", async () => {
+    const arbLessonId = fc.string({ minLength: 1, maxLength: 20 }).map((s) => s.replace(/\//g, "x") || "x");
+    await fc.assert(
+      fc.asyncProperty(arbPrefs, arbLessonId, arbLessonId, async (prefs, lessonIdA, lessonIdB) => {
+        const { storage } = setupStorage();
+        Object.defineProperty(window, "location", {
+          value: { hostname: "echo360.org", pathname: `/lesson/${lessonIdA}/classroom` },
+          configurable: true,
+          writable: true,
+        });
+        await storage.savePrefs(prefs);
+
+        Object.defineProperty(window, "location", {
+          value: { hostname: "echo360.org", pathname: `/lesson/${lessonIdB}/classroom` },
+          configurable: true,
+          writable: true,
+        });
+        const loaded = await storage.getPrefs();
+        expect(loaded.useNativeSubtitles).toBe(prefs.useNativeSubtitles);
+        expect(loaded.size).toBe(prefs.size);
       }),
       { numRuns: 200 },
     );

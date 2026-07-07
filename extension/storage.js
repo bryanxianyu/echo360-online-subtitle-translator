@@ -11,20 +11,45 @@
   const extensionApi = ns.browserApi;
   const KEYLESS_PROVIDERS = new Set(["google-web"]);
   const PREFS_SCHEMA_VERSION = 2;
+  // Display/render prefs (enabled, bilingual, size, useNativeSubtitles, ...)
+  // are a personal, browser-wide habit - not something tied to one specific
+  // lesson - so they are stored under a single fixed key rather than scoped
+  // per lesson/pathname. Earlier versions scoped them via getContextKey()
+  // (see below), which meant choosing e.g. "always use browser subtitles" on
+  // one lesson had no effect on the next lesson opened, since each lesson's
+  // unique URL produced its own separate storage entry.
+  const GLOBAL_PREFS_KEY = `${PREFS_KEY_PREFIX}global`;
 
   function isLocalBackendEnabled() {
     return ns.buildConfig?.enableLocalBackend !== false;
   }
 
+  // Still used elsewhere as a general "what lesson am I on" helper; no longer
+  // used to scope prefs storage (see GLOBAL_PREFS_KEY above).
   function getContextKey() {
     const m = location.pathname.match(/\/lesson\/([^/]+)/);
     return `${location.hostname}::${m ? m[1] : location.pathname}`;
   }
 
+  // One-time migration for users upgrading from a version that scoped prefs
+  // per lesson: adopt whichever legacy per-lesson entry happens to be found
+  // first as the new global default, so a choice the user already made isn't
+  // silently discarded the first time getPrefs() runs under the new scheme.
+  async function migrateLegacyPerLessonPrefs() {
+    const all = await extensionApi.storage.local.get(null);
+    for (const [key, value] of Object.entries(all || {})) {
+      if (key === GLOBAL_PREFS_KEY || !key.startsWith(PREFS_KEY_PREFIX)) continue;
+      if (!value || typeof value !== "object") continue;
+      await extensionApi.storage.local.set({ [GLOBAL_PREFS_KEY]: value });
+      return value;
+    }
+    return null;
+  }
+
   async function getPrefs() {
-    const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
-    const obj = await extensionApi.storage.local.get(key);
-    const prefs = obj[key] || {
+    const obj = await extensionApi.storage.local.get(GLOBAL_PREFS_KEY);
+    const stored = obj[GLOBAL_PREFS_KEY] || (await migrateLegacyPerLessonPrefs());
+    const prefs = stored || {
       enabled: true,
       size: DEFAULT_SUBTITLE_SIZE,
       bilingual: false,
@@ -55,7 +80,7 @@
   }
 
   async function savePrefs(prefs) {
-    const key = `${PREFS_KEY_PREFIX}${getContextKey()}`;
+    const key = GLOBAL_PREFS_KEY;
     const obj = await extensionApi.storage.local.get(key);
     const existing = obj[key] && typeof obj[key] === "object" ? obj[key] : {};
     const useNativeSubtitles = prefs.useNativeSubtitles === true;

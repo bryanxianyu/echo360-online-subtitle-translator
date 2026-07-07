@@ -34,6 +34,12 @@
  *   P21 onNoCaptionCapability stays silent when CC capability exists but is off
  *   P22 onNoCaptionCapability fires at most once per mount
  *   P23 renderCurrentCue does not throw if onNoCaptionCapability unmounts synchronously
+ *   P24 requestVideoFrameCallback-driven re-renders are throttled (high refresh-rate storms)
+ *   P25 timeupdate-driven re-renders are never throttled
+ *   P26 a host-page main-thread stall extends the grace period instead of exhausting it early
+ *   P27 ordinary call gaps are never mistaken for a stall
+ *   P28 MutationObserver retries on any mutation while unmatched, regardless of text match
+ *   P29 once matched, unrelated mutations no longer trigger a full-tree scan
  */
 
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from "vitest";
@@ -95,10 +101,23 @@ function makeVideo(currentTime = 0) {
     configurable: true,
   });
   // duration / paused / ended are read-only getters on HTMLMediaElement in jsdom
-  el.requestVideoFrameCallback = vi.fn(() => 1);
+  // Captures the latest callback (rather than invoking it) so tests can
+  // manually fire successive "video frames" to simulate a high-refresh-rate
+  // display without waiting on a real render loop.
+  el.requestVideoFrameCallback = vi.fn((cb) => {
+    el._lastFrameCallback = cb;
+    return 1;
+  });
   el.cancelVideoFrameCallback = vi.fn();
   stubRect(el);
   return el;
+}
+
+/** Invokes the most recently scheduled requestVideoFrameCallback, if any. */
+function fireVideoFrame(video) {
+  const cb = video._lastFrameCallback;
+  video._lastFrameCallback = null;
+  cb?.();
 }
 
 /**
@@ -422,6 +441,108 @@ describe("DOM injection via native caption double", () => {
     expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
   });
 
+  it("P24: throttles requestVideoFrameCallback-driven re-renders so a high-refresh-rate storm doesn't pay for a full scan on every frame", () => {
+    // Regression guard for a real-world bug report: on a 144Hz display at 2x
+    // playback speed, requestVideoFrameCallback can fire far more often than
+    // a human can perceive a subtitle updating. Without a throttle, every
+    // one of those callbacks would pay for a full O(N) player-subtree scan
+    // while a cue is still unmatched (e.g. right after seeking), and the
+    // resulting main-thread backlog was reported to make injection fall
+    // further and further behind across several subsequent cues.
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video); // no matching caption span yet
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    const scanSpy = vi.spyOn(player, "querySelectorAll");
+    scanSpy.mockClear();
+
+    // Simulate ~7ms-apart video frames (roughly a 144Hz cadence) for 100ms -
+    // about 14 callbacks - all while the cue remains unmatched and well
+    // within the 750ms grace period.
+    for (let i = 0; i < 14; i += 1) {
+      mockNow += 7;
+      fireVideoFrame(video);
+    }
+
+    const fullScanCalls = scanSpy.mock.calls.filter((args) => args[0] === "*").length;
+    // A 33ms throttle floor over 100ms allows at most ~4 real scan attempts,
+    // versus the 14 an unthrottled loop would have made.
+    expect(fullScanCalls).toBeGreaterThan(0);
+    expect(fullScanCalls).toBeLessThanOrEqual(4);
+  });
+
+  it("P25: does not throttle timeupdate-driven re-renders (only the requestVideoFrameCallback loop is capped)", () => {
+    const video = makeVideo(1.0);
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+    // First attempt (inside mount, at now=0) failed: no matching span yet.
+
+    const span = addCaptionSpan(player, "Hello world");
+
+    // Only 5ms later - well under the rVFC throttle window - but triggered
+    // via timeupdate, which must keep retrying immediately regardless.
+    mockNow = 5;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(span.getAttribute("data-echo360-translated-line")).toBe("1");
+  });
+
+  it("P26: extends a cue's grace period by however long the host page's main thread stalled, instead of exhausting it early", () => {
+    // Regression guard for a real-world report: Echo360's own player can
+    // freeze the shared main thread for several seconds around a seek (its
+    // own WebGL/audio reinit, style recalculation, etc.) - nothing this
+    // extension does can run *during* that freeze either. Without this
+    // adjustment, a cue could get marked "exhausted" (and its translation
+    // blanked) purely because the 750ms grace period elapsed in real
+    // wall-clock time while the thread was unavailable to us - even though
+    // we never actually got a chance to search for a match.
+    const video = makeVideo(1.0); // cue 0
+    const player = setupPlayer(video); // no matching caption span yet
+
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+    // mount's own render call happened at mockNow=0.
+
+    // Simulate a 3-second host-page freeze: the next trigger only fires
+    // 3000ms later in wall-clock time, far more than the 750ms grace period,
+    // but we never got a single chance to search during that gap.
+    mockNow = 3000;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    // The grace period must have been pushed back by the stall, so the cue
+    // is NOT exhausted yet even though 3000ms of wall-clock time has passed.
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(false);
+    expect(renderer.getDebugState().stallCount).toBe(1);
+    expect(renderer.getDebugState().lastStallGapMs).toBe(3000);
+
+    // A matching span now appears (as if Echo360 finally rendered it once
+    // the freeze cleared) and the very next trigger should still find it.
+    const span = addCaptionSpan(player, "Hello world");
+    mockNow = 3010;
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(span.getAttribute("data-echo360-translated-line")).toBe("1");
+  });
+
+  it("P27: does not treat ordinary call gaps as a stall", () => {
+    // The stall-detection threshold must sit comfortably above normal
+    // trigger cadence (rVFC throttled to ~33ms, timeupdate at least every
+    // ~250ms) so everyday gaps between triggers are never mistaken for a
+    // host-page freeze.
+    const video = makeVideo(1.0);
+    setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    mockNow = 250;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 500;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 800; // past the 750ms grace period; no stall ever occurred
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(renderer.getDebugState().stallCount).toBe(0);
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(true);
+  });
+
   it("P14: MutationObserver injects synchronously without a video event or rAF flush", async () => {
     // No timeupdate/seeked/play/rVFC trigger at all: only the MutationObserver
     // reacting to Echo360 creating its caption node should cause the
@@ -437,6 +558,65 @@ describe("DOM injection via native caption double", () => {
 
     expect(span.getAttribute("data-echo360-translated-line")).toBe("1");
     expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+  });
+
+  it("P28: MutationObserver retries on ANY player mutation while unmatched, even if its text doesn't match the current cue", async () => {
+    // Regression guard for a real-world report: the lag from a seek/stall
+    // was found to carry over into several subsequent cues. Root cause -
+    // right after a stall, Echo360 needs a moment to catch its own caption
+    // box up to the actual (fast-forwarded) position, and in the meantime it
+    // may render cues *behind* whatever cue we're currently expecting. The
+    // old text-matching pre-filter treated those as irrelevant and only
+    // reacted once Echo360 finally caught all the way up - stretching the
+    // lag across every cue in between. Reacting to any mutation while
+    // unmatched (and letting the real scan/match logic decide relevance)
+    // fixes this.
+    const video = makeVideo(1.0); // cue 0 ("Hello world"), unmatched - no span yet
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    const scanSpy = vi.spyOn(player, "querySelectorAll");
+    scanSpy.mockClear();
+
+    // Echo360 mutates its own caption box with text that does NOT match cue
+    // 0 at all (e.g. it's still rendering stale/unrelated content while
+    // catching up from a stall).
+    const decoy = document.createElement("div");
+    decoy.textContent = "completely unrelated caption text";
+    stubRect(decoy, { width: 200, height: 30, top: 400, left: 220, bottom: 430, right: 420 });
+    player.appendChild(decoy);
+    await Promise.resolve();
+
+    // A fresh full-tree scan attempt must have happened in reaction to this
+    // mutation, even though its text doesn't match the cue we're waiting on.
+    const fullScanCalls = scanSpy.mock.calls.filter((args) => args[0] === "*").length;
+    expect(fullScanCalls).toBeGreaterThan(0);
+  });
+
+  it("P29: once a cue is matched, unrelated player mutations no longer trigger a full-tree scan", async () => {
+    // The relaxed P28 behavior must not regress the steady-state
+    // optimization: after a match is found, unrelated DOM churn elsewhere in
+    // the player (progress bar ticks, etc.) should stay cheap.
+    const video = makeVideo(1.0); // cue 0
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    const span = addCaptionSpan(player, "Hello world");
+    mockNow = 10;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translated-line")).toBe("1"); // now matched
+
+    const scanSpy = vi.spyOn(player, "querySelectorAll");
+    scanSpy.mockClear();
+
+    const decoy = document.createElement("div");
+    decoy.textContent = "unrelated progress bar tick";
+    stubRect(decoy, { width: 200, height: 30, top: 400, left: 220, bottom: 430, right: 420 });
+    player.appendChild(decoy);
+    await Promise.resolve();
+
+    const fullScanCalls = scanSpy.mock.calls.filter((args) => args[0] === "*").length;
+    expect(fullScanCalls).toBe(0);
   });
 });
 

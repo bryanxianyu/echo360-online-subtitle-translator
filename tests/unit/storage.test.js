@@ -231,7 +231,9 @@ describe("getConfig", () => {
 // getPrefs normalization
 // ---------------------------------------------------------------------------
 describe("getPrefs normalization", () => {
-  const prefsKey = () => `echo360TranslatorPrefs::${window.location.hostname}::${window.location.pathname}`;
+  // Display/render prefs are global (not scoped per lesson) since 1.4.x - see
+  // GLOBAL_PREFS_KEY in storage.js.
+  const prefsKey = () => "echo360TranslatorPrefs::global";
 
   it("forces bilingual=true and reverseOrder=false in Echo360 native CC mode (schema v2)", async () => {
     const { storage } = setupStorage({
@@ -312,10 +314,99 @@ describe("getPrefs normalization", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Prefs persist globally across lessons (not scoped per lesson/pathname)
+// ---------------------------------------------------------------------------
+describe("prefs persistence across lessons", () => {
+  it("savePrefs on one lesson is read back by getPrefs on a different lesson", async () => {
+    Object.defineProperty(window, "location", {
+      value: { hostname: "echo360.org", pathname: "/lesson/course-a/classroom" },
+      configurable: true,
+      writable: true,
+    });
+    const { storage } = setupStorage();
+    await storage.savePrefs({
+      enabled: true,
+      bilingual: true,
+      reverseOrder: false,
+      useNativeSubtitles: false,
+      size: "large",
+    });
+
+    Object.defineProperty(window, "location", {
+      value: { hostname: "echo360.org", pathname: "/lesson/course-b/classroom" },
+      configurable: true,
+      writable: true,
+    });
+    const prefs = await storage.getPrefs();
+    expect(prefs.useNativeSubtitles).toBe(false);
+    expect(prefs.size).toBe("large");
+  });
+
+  it("adopts a legacy per-lesson pref entry the first time getPrefs runs after upgrading", async () => {
+    const { storage, localMock } = setupStorage({
+      storageData: {
+        "echo360TranslatorPrefs::echo360.org::old-lesson-id": {
+          enabled: true,
+          size: "small",
+          bilingual: false,
+          reverseOrder: false,
+          browserBilingual: false,
+          browserReverseOrder: false,
+          useNativeSubtitles: true,
+          renderModeVersion: 2,
+        },
+      },
+    });
+    const prefs = await storage.getPrefs();
+    expect(prefs.useNativeSubtitles).toBe(true);
+    expect(prefs.size).toBe("small");
+    // The migrated value is persisted under the new global key so subsequent
+    // reads don't need to re-scan legacy entries.
+    expect(localMock._store["echo360TranslatorPrefs::global"]).toBeTruthy();
+  });
+
+  it("ignores non-prefs keys when scanning for a legacy entry to migrate", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        echo360TranslatorConfig: { provider: "openai" },
+        echo360TranslatedVttCache: { cacheKey: "x" },
+      },
+    });
+    const prefs = await storage.getPrefs();
+    // Falls through to hardcoded defaults since no legacy prefs entry exists.
+    expect(prefs.useNativeSubtitles).toBe(false);
+    expect(prefs.bilingual).toBe(true);
+  });
+
+  it("does not re-migrate once a global prefs entry already exists", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        "echo360TranslatorPrefs::global": {
+          enabled: true,
+          size: "medium",
+          useNativeSubtitles: false,
+          renderModeVersion: 2,
+        },
+        "echo360TranslatorPrefs::echo360.org::stale-lesson": {
+          enabled: true,
+          size: "small",
+          useNativeSubtitles: true,
+          renderModeVersion: 2,
+        },
+      },
+    });
+    const prefs = await storage.getPrefs();
+    // Reads the already-migrated global entry, not the stale legacy one.
+    expect(prefs.size).toBe("medium");
+    expect(prefs.useNativeSubtitles).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // savePrefs (P1 — previously NoCoverage)
 // ---------------------------------------------------------------------------
 describe("savePrefs", () => {
-  const prefsKey = () => `echo360TranslatorPrefs::${window.location.hostname}::${window.location.pathname}`;
+  const prefsKey = () => "echo360TranslatorPrefs::global";
 
   it("persists prefs so getPrefs can read them back", async () => {
     const { storage, localMock } = setupStorage();
