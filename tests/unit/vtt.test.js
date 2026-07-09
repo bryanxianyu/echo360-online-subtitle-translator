@@ -508,4 +508,10 @@ World
     const preview = vtt.buildIncrementalPreviewVtt(ORIG, ORIG, { placeholder: "Translating..." });
     expect(preview).toContain("Translating...");
   });
+
+  it("marks still-pending cues with a failure label when translation aborts", () => {
+    const preview = vtt.buildIncrementalPreviewVtt(ORIG, ORIG, { placeholder: "[翻译失败]" });
+    expect(preview).toContain("[翻译失败]");
+    expect(preview).not.toContain("正在翻译中...");
+  });
 });

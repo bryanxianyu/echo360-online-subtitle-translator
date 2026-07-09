@@ -36,6 +36,8 @@
       AR: "阿拉伯语 (العربية)",
       HI: "印地语 (हिन्दी)",
     },
+    SUBTITLE_PENDING_LABEL: "正在翻译中...",
+    SUBTITLE_FAILURE_LABEL: "[翻译失败]",
     DEFAULT_SUBTITLE_SIZE: "medium",
     SIZE_MAP: { small: "62%", medium: "70%", large: "78%" },
     SAFARI_SIZE_MAP: { small: "94%", medium: "110%", large: "128%" },

@@ -95,6 +95,7 @@
         "ui_onboarding.js",
         "ui_panel.js",
         "ui_popover.js",
+        "ui_failure_actions.js",
         "ui.js",
         "backend_client.js",
         "translation_service.js",

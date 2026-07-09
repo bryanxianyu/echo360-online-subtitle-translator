@@ -77,6 +77,8 @@ function setupControllerWithRenderer() {
       ensurePanel: vi.fn(),
       setStatusText: vi.fn(),
       updateActionButtons: vi.fn(),
+      showTranslationFailureActions: vi.fn(),
+      hideTranslationFailureActions: vi.fn(),
     },
     video: {
       installPageProbe: vi.fn(),

@@ -68,6 +68,8 @@ export function makeVttNs() {
     constants: {
       DEFAULT_SUBTITLE_SIZE: "medium",
       CUE_LINE_MAP: { small: "97.2%", medium: "97.2%", large: "97.2%" },
+      SUBTITLE_PENDING_LABEL: "正在翻译中...",
+      SUBTITLE_FAILURE_LABEL: "[翻译失败]",
     },
   };
 }
@@ -96,6 +98,8 @@ export function makeFullNs(overrides = {}) {
         JA: "日语 (日本語)",
       },
       DEFAULT_SUBTITLE_SIZE: "medium",
+      SUBTITLE_PENDING_LABEL: "正在翻译中...",
+      SUBTITLE_FAILURE_LABEL: "[翻译失败]",
       SIZE_MAP: { small: "62%", medium: "70%", large: "78%" },
       SAFARI_SIZE_MAP: { small: "94%", medium: "110%", large: "128%" },
       CUE_LINE_MAP: { small: "97.2%", medium: "97.2%", large: "97.2%" },
@@ -135,6 +139,7 @@ export function loadUiModules() {
     "ui_onboarding.js",
     "ui_panel.js",
     "ui_popover.js",
+    "ui_failure_actions.js",
     "ui.js",
   ]) {
     evalModule(filename);

@@ -3,6 +3,7 @@
   const {
     DEFAULT_SUBTITLE_SIZE,
     CUE_LINE_MAP,
+    SUBTITLE_PENDING_LABEL,
   } = ns.constants;
 
   function formatVttTime(seconds) {
@@ -165,7 +166,7 @@
   }
 
   function buildIncrementalPreviewVtt(partialVtt, originalVtt, options = {}) {
-    const placeholder = options.placeholder || "正在翻译中...";
+    const placeholder = options.placeholder || SUBTITLE_PENDING_LABEL;
     const trans = parseVttBlocks(partialVtt);
     const orig = parseVttBlocks(originalVtt);
     const n = Math.min(trans.length, orig.length);

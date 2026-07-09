@@ -14,6 +14,8 @@ function setupUi(initialPrefs) {
     storage: {
       getPrefs: vi.fn(async () => initialPrefs),
       getConfig: vi.fn(async () => ({ target: "ZH" })),
+      getOnboardingSeen: vi.fn(async () => false),
+      setOnboardingSeen: vi.fn(async () => {}),
     },
   });
   loadUiModules();
@@ -226,5 +228,54 @@ describe("settings popover translation service display", () => {
 
     changeListener({ someOtherKey: { newValue: {} } }, "local");
     expect(providerLabel.textContent).toBe("Google Translate");
+  });
+});
+
+describe("translation failure actions", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows retry and cancel links after a translation failure", () => {
+    setupUi({
+      enabled: true,
+      bilingual: false,
+      reverseOrder: false,
+      browserBilingual: false,
+      browserReverseOrder: false,
+      useNativeSubtitles: true,
+      size: "medium",
+    });
+
+    const onRetry = vi.fn();
+    const onCancel = vi.fn();
+    window.Echo360Translator.ui.showTranslationFailureActions({ onRetry, onCancel });
+
+    const bar = document.getElementById("echo360-translator-failure-actions");
+    expect(bar.style.display).toBe("flex");
+    expect(bar.textContent).toContain("[翻译失败]");
+    expect(bar.textContent).toContain("重试");
+    expect(bar.textContent).toContain("取消");
+
+    bar.querySelector('[data-action="retry"]').click();
+    bar.querySelector('[data-action="cancel"]').click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the failure action bar on cancel", () => {
+    setupUi({
+      enabled: true,
+      bilingual: false,
+      reverseOrder: false,
+      browserBilingual: false,
+      browserReverseOrder: false,
+      useNativeSubtitles: true,
+      size: "medium",
+    });
+
+    window.Echo360Translator.ui.showTranslationFailureActions({ onRetry: vi.fn(), onCancel: vi.fn() });
+    window.Echo360Translator.ui.hideTranslationFailureActions();
+    expect(document.getElementById("echo360-translator-failure-actions").style.display).toBe("none");
   });
 });

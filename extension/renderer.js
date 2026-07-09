@@ -6,6 +6,7 @@
     SAFARI_LINE_HEIGHT_MAP,
     SAFARI_SIZE_MAP,
     SIZE_MAP,
+    SUBTITLE_PENDING_LABEL,
   } = ns.constants;
 
   let lastTranslatedTrack = null;
@@ -305,7 +306,7 @@
       : translatedVtt;
     if (renderOptions.previewPending) {
       normalizedTranslated = ns.vtt.buildIncrementalPreviewVtt(normalizedTranslated, originalVtt, {
-        placeholder: renderOptions.pendingLabel || "正在翻译中...",
+        placeholder: renderOptions.pendingLabel || SUBTITLE_PENDING_LABEL,
       });
     }
     const rawPayload = bilingual

@@ -327,6 +327,53 @@
       .echo360-popover-link-btn--underline {
         text-decoration: underline;
       }
+
+      /* ===== Translation failure actions (subtitle-adjacent) ===== */
+      #echo360-translator-failure-actions {
+        position: fixed;
+        left: 50%;
+        bottom: 12%;
+        transform: translateX(-50%);
+        z-index: 2147483647;
+        pointer-events: auto;
+        display: none;
+        align-items: center;
+        gap: 10px;
+        max-width: min(92vw, 720px);
+        padding: 8px 14px;
+        border-radius: 8px;
+        background: rgba(20, 20, 20, 0.82);
+        color: #fff;
+        font-size: clamp(14px, 2.1vw, 20px);
+        line-height: 1.35;
+        text-align: center;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+      }
+      .echo360-failure-label {
+        font-weight: 600;
+      }
+      .echo360-failure-link {
+        border: 0;
+        background: transparent;
+        color: #8ec8ff;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: underline;
+        padding: 0;
+      }
+      .echo360-failure-link:hover {
+        color: #b8dcff;
+      }
+      .echo360-failure-link:active {
+        transform: scale(0.96);
+      }
+      .echo360-failure-sep {
+        opacity: 0.55;
+        user-select: none;
+      }
     `;
     document.head.appendChild(style);
   }

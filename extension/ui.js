@@ -15,6 +15,7 @@
 
   let activePanel = null;
   let activePopover = null;
+  let activeFailureActions = null;
 
   function ensurePanel(nextHandlers) {
     handlers = { ...handlers, ...(nextHandlers || {}) };
@@ -48,6 +49,7 @@
       onToggleSettings: () => popover.toggle(),
     });
     const popover = ns.uiPopover.create(root, handlers);
+    activeFailureActions = ns.uiFailureActions.create(root);
 
     activePanel = panel;
     activePopover = popover;
@@ -75,10 +77,20 @@
     activePanel?.updateActionButtons(text, disabled);
   }
 
+  function showTranslationFailureActions(handlers) {
+    activeFailureActions?.show(handlers);
+  }
+
+  function hideTranslationFailureActions() {
+    activeFailureActions?.hide();
+  }
+
   ns.ui = {
     ensurePanel,
     readPanelPrefs,
     setStatusText,
     updateActionButtons,
+    showTranslationFailureActions,
+    hideTranslationFailureActions,
   };
 })();

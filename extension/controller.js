@@ -54,7 +54,52 @@
     isTranslating = true;
     activeRunId = runId;
 
+    let incrementalPreviewMounted = false;
+    let lastPreviewVtt = "";
+    let previewRenderArgs = null;
+
+    const dismissFailedTranslation = () => {
+      ns.ui.hideTranslationFailureActions();
+      ns.renderer.cleanupTranslatedTracks();
+      incrementalPreviewMounted = false;
+      previewRenderArgs = null;
+      lastPreviewVtt = "";
+      loadedCacheKey = "";
+      ns.ui.setStatusText("");
+      ns.ui.updateActionButtons("加载翻译字幕", false);
+    };
+
+    const showFailedTranslationPreview = () => {
+      if (!incrementalPreviewMounted || !previewRenderArgs) return;
+      const { vttText, prefs, sourceMeta } = previewRenderArgs;
+      const mounted = ns.renderer.renderTranslatedTrack(
+        lastPreviewVtt || vttText,
+        vttText,
+        prefs.bilingual,
+        prefs.size,
+        prefs.reverseOrder,
+        sourceMeta,
+        prefs.useNativeSubtitles,
+        {
+          incremental: true,
+          previewPending: true,
+          pendingLabel: ns.constants.SUBTITLE_FAILURE_LABEL,
+          browserBilingual: prefs.browserBilingual,
+          browserReverseOrder: prefs.browserReverseOrder,
+        }
+      );
+      if (mounted) ns.renderer.applySubtitleVisibility(prefs.enabled);
+      ns.ui.showTranslationFailureActions({
+        onRetry: () => {
+          ns.ui.hideTranslationFailureActions();
+          void onClickTranslate(true);
+        },
+        onCancel: dismissFailedTranslation,
+      });
+    };
+
     try {
+      ns.ui.hideTranslationFailureActions();
       ns.ui.updateActionButtons(forceRefresh ? "重新翻译中..." : "处理中...", true);
       ns.ui.setStatusText(forceRefresh ? "强制重新翻译..." : "准备翻译...");
 
@@ -131,9 +176,10 @@
 
       const backendUrl = (cfg.backendUrl || "http://127.0.0.1:8765").replace(/\/+$/, "");
       const payload = ns.translationService.buildTranslatePayload(cfg, vttText, forceRefresh);
-      let incrementalPreviewMounted = false;
+      previewRenderArgs = { vttText, prefs, sourceMeta };
 
       const mountTranslationPreview = (partialVtt, incremental = false) => {
+        lastPreviewVtt = partialVtt;
         const mounted = ns.renderer.renderTranslatedTrack(
           partialVtt,
           vttText,
@@ -225,6 +271,7 @@
       }
     } catch (err) {
       console.error(err);
+      showFailedTranslationPreview();
       const msg = ns.backendClient.friendlyErrorMessage(err?.message || String(err));
       ns.ui.setStatusText(`失败: ${msg}`);
       ns.ui.updateActionButtons("加载翻译字幕");
