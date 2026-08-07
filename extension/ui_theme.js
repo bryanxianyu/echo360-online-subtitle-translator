@@ -26,6 +26,12 @@
       shadow: "rgba(0,0,0,0.4)",
       backdrop: "blur(14px) saturate(1.3)",
     },
+    // Solid (non-glass) fill for dense helper text such as the Beta notice tip.
+    tipSurface: {
+      bg: "#1c1c1c",
+      border: "rgba(255,255,255,0.12)",
+      shadow: "rgba(0,0,0,0.45)",
+    },
     fg: "#fff",
     button: { bg: "#444", fg: "#fff", fontWeight: 600, hoverFilter: "brightness(1.22)" },
     collapseButton: { bg: "#2b2b2b", fg: "#aaa" },
@@ -51,6 +57,11 @@
       border: "rgba(0,0,0,0.18)",
       shadow: "rgba(0,0,0,0.2)",
       backdrop: "blur(14px) saturate(1.8)",
+    },
+    tipSurface: {
+      bg: "#ffffff",
+      border: "rgba(0,0,0,0.16)",
+      shadow: "rgba(0,0,0,0.22)",
     },
     fg: "#1a1a1a",
     button: { bg: "#d4d4d4", fg: "#1a1a1a", fontWeight: 405, hoverFilter: "brightness(0.93)" },
@@ -79,6 +90,9 @@
         --echo360-popover-border-color: ${theme.popoverSurface.border};
         --echo360-popover-shadow: ${theme.popoverSurface.shadow};
         --echo360-popover-backdrop: ${theme.popoverSurface.backdrop};
+        --echo360-tip-bg: ${theme.tipSurface.bg};
+        --echo360-tip-border-color: ${theme.tipSurface.border};
+        --echo360-tip-shadow: ${theme.tipSurface.shadow};
         --echo360-btn-bg: ${theme.button.bg};
         --echo360-btn-fg: ${theme.button.fg};
         --echo360-btn-font-weight: ${theme.button.fontWeight};

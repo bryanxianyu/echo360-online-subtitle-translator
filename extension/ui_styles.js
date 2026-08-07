@@ -286,6 +286,57 @@
         opacity: 0.5;
         cursor: not-allowed;
       }
+      .echo360-beta-pref-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .echo360-beta-notice-icon {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        width: 14px;
+        height: 14px;
+        box-sizing: border-box;
+        border: 1px solid currentColor;
+        border-radius: 50%;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        /* Do not use opacity here: the tip is a child of this icon, and
+           parent opacity would make the solid tip background translucent. */
+        cursor: help;
+        outline: none;
+      }
+      .echo360-beta-notice-tip {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 6px);
+        z-index: 2;
+        width: max-content;
+        max-width: 220px;
+        padding: 7px 8px;
+        border-radius: 6px;
+        border: 1px solid var(--echo360-tip-border-color);
+        background: var(--echo360-tip-bg);
+        color: var(--echo360-popover-fg);
+        box-shadow: 0 4px 12px var(--echo360-tip-shadow);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        font-size: 11px;
+        font-weight: 400;
+        line-height: 1.4;
+        white-space: normal;
+        text-align: left;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .echo360-beta-notice-icon:hover .echo360-beta-notice-tip,
+      .echo360-beta-notice-icon:focus-visible .echo360-beta-notice-tip {
+        visibility: visible;
+      }
       .echo360-popover-block-label {
         display: block;
         margin: 8px 0;

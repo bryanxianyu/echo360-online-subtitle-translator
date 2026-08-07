@@ -40,6 +40,13 @@
  *   P27 ordinary call gaps are never mistaken for a stall
  *   P28 MutationObserver retries on any mutation while unmatched, regardless of text match
  *   P29 once matched, unrelated mutations no longer trigger a full-tree scan
+ *   P30 high-speed lag: caption DOM showing an earlier cue than currentTime gets that cue's
+ *       translation injected in the same microtask as the DOM write
+ *   P31 anchor text lagging behind the time-computed cue keeps its (still correct) translation
+ *       instead of being blanked, then follows the text when Echo360 catches up
+ *   P32 text outside the resolution window is never force-matched and exhausts normally
+ *   P33 a caption mutation arriving after grace exhaustion still wakes up injection
+ *   P34 a short next cue is injected from its mutation even before timeupdate bookkeeping catches up
  */
 
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from "vitest";
@@ -617,6 +624,146 @@ describe("DOM injection via native caption double", () => {
 
     const fullScanCalls = scanSpy.mock.calls.filter((args) => args[0] === "*").length;
     expect(fullScanCalls).toBe(0);
+  });
+
+  it("P34: a short next cue is injected from its mutation before timeupdate bookkeeping catches up", async () => {
+    const shortOrigVtt = ORIG_VTT.replace("Second line", "OK");
+    const shortTransVtt = TRANS_VTT.replace("第二行", "好的");
+    const video = makeVideo(1.0); // cue 0
+    const player = setupPlayer(video);
+    renderer.mount({
+      video,
+      originalVtt: shortOrigVtt,
+      translatedVtt: shortTransVtt,
+      size: "medium",
+    });
+
+    const span = addCaptionSpan(player, "Hello world");
+    mockNow = 10;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+    expect(renderer.getDebugState().lastCueIndex).toBe(0);
+
+    // Playback has entered cue 1, but no timeupdate/rVFC callback has run, so
+    // the renderer's stored cue index is still 0. Echo360 writes the very
+    // short caption first. Its MutationObserver record must be recognized by
+    // reverse-looking up "OK", instead of being filtered against cue 0's
+    // source and leaving no time for a later retry.
+    video.currentTime = 3.0;
+    span.textContent = "OK";
+    await Promise.resolve();
+
+    expect(span.getAttribute("data-echo360-translation")).toBe("好的");
+    expect(renderer.getDebugState().lastCueIndex).toBe(1);
+    expect(renderer.getDebugState().nativeInjectedCueIndex).toBe(1);
+  });
+
+  it("P30: caption DOM showing an earlier cue than currentTime gets that cue's translation in the same microtask", async () => {
+    // The high-playback-speed lag scenario: video.currentTime has already
+    // advanced into cue 1's window, but Echo360's main thread is behind and
+    // only now writes cue 0's English into the caption box. The injection
+    // must follow the *visible text* (cue 0), resolved via the window
+    // search, and land in the same microtask as Echo360's DOM write - not
+    // wait for Echo360 to catch all the way up to cue 1.
+    const video = makeVideo(3.0); // cue 1 by time (2.5s - 4.5s)
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    // Echo360 belatedly renders cue 0's English. No timeupdate/rVFC trigger:
+    // only the MutationObserver reacts.
+    const span = addCaptionSpan(player, "Hello world");
+    await Promise.resolve();
+
+    expect(span.getAttribute("data-echo360-translated-line")).toBe("1");
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+    expect(renderer.getDebugState().nativeInjectedCueIndex).toBe(0);
+  });
+
+  it("P31: anchor text lagging behind the time-computed cue keeps its translation, then follows the catch-up", () => {
+    const video = makeVideo(1.0); // cue 0
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    const span = addCaptionSpan(player, "Hello world");
+    mockNow = 10;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+
+    // currentTime moves into cue 1's window but Echo360's box still shows
+    // cue 0's English. The (still visually correct) translation must stay.
+    video.currentTime = 3.0; // cue 1 (2.5s - 4.5s)
+    mockNow = 20;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+    expect(renderer.getDebugState().nativeInjectedCueIndex).toBe(0);
+
+    // Even well past cue 1's grace deadline, a genuine text match means the
+    // cue is never marked exhausted and the translation is never blanked.
+    mockNow = 300;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 600;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 900;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(false);
+
+    // Echo360 finally catches up: the translation follows the new text.
+    span.textContent = "Second line";
+    mockNow = 910;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("第二行");
+    expect(renderer.getDebugState().nativeInjectedCueIndex).toBe(1);
+  });
+
+  it("P32: text outside the resolution window is never force-matched and exhausts normally", () => {
+    const video = makeVideo(1.0); // cue 0
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    const span = addCaptionSpan(player, "Hello world");
+    mockNow = 10;
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(span.getAttribute("data-echo360-translation")).toBe("你好世界");
+
+    // Echo360 replaces the caption text with something that belongs to no
+    // nearby cue at all (e.g. a status message), while time moves to cue 1.
+    span.textContent = "Completely unrelated status text";
+    video.currentTime = 3.0; // cue 1
+    mockNow = 20;
+    video.dispatchEvent(new Event("timeupdate")); // cue change: grace runs until 770
+
+    mockNow = 300;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 600;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 900; // past grace with no genuine match
+    video.dispatchEvent(new Event("timeupdate"));
+
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(true);
+    expect(span.hasAttribute("data-echo360-translated-line")).toBe(false);
+  });
+
+  it("P33: a caption mutation arriving after grace exhaustion still wakes up injection", async () => {
+    const video = makeVideo(3.0); // cue 1, no caption DOM yet
+    const player = setupPlayer(video);
+    renderer.mount({ video, originalVtt: ORIG_VTT, translatedVtt: TRANS_VTT, size: "medium" });
+
+    mockNow = 300;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 600;
+    video.dispatchEvent(new Event("timeupdate"));
+    mockNow = 900; // grace (750ms from mount) lapsed, still no match
+    video.dispatchEvent(new Event("timeupdate"));
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(true);
+
+    // Echo360's caption box finally appears on the SAME cue - the mutation
+    // must reopen the search instead of staying silent until the next cue.
+    const span = addCaptionSpan(player, "Second line");
+    await Promise.resolve();
+
+    expect(span.getAttribute("data-echo360-translation")).toBe("第二行");
+    expect(renderer.getDebugState().nativeSearchExhausted).toBe(false);
   });
 });
 

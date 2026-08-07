@@ -43,8 +43,22 @@
         <span>反转字幕位置</span>
         <input id="echo360-pref-reverse" type="checkbox" />
       </label>
-      <label class="echo360-popover-row" title="默认会把译文注入 Echo360 播放器自带的 CC 字幕区域；如果本课程没有原生字幕位，会自动切换为浏览器字幕。勾选后始终使用浏览器字幕，不再尝试注入原生 CC。">
-        <span>始终使用浏览器字幕</span>
+      <label class="echo360-popover-row">
+        <span class="echo360-beta-pref-label">
+          <span>使用原生字幕注入（Beta）</span>
+          <span
+            class="echo360-beta-notice-icon"
+            role="img"
+            tabindex="0"
+            aria-label="该实验功能有开启须知"
+            aria-describedby="echo360-beta-notice-tip"
+          >
+            !
+            <span id="echo360-beta-notice-tip" class="echo360-beta-notice-tip" role="tooltip">
+              实验功能：把译文注入 Echo360 播放器自带的 CC 区域，外观更贴近原生字幕。倍速播放时仍可能漏译；默认使用更稳定的浏览器字幕轨。本课程没有原生字幕位时会自动回退。
+            </span>
+          </span>
+        </span>
         <input id="echo360-pref-echo360-native-cc" type="checkbox" />
       </label>
       <label id="echo360-pref-size-label" class="echo360-popover-block-label">字幕大小
@@ -88,19 +102,19 @@
       // Bilingual/reverse-order/size only apply to the browser <track>
       // renderer: native CC injection always adds a single translated line
       // into Echo360's own caption box, so those controls are only meaningful
-      // (and editable) when "始终使用浏览器字幕" is checked.
-      const disabled = !refs.nativeCc.checked;
-      refs.bilingual.disabled = disabled;
-      refs.reverseOrder.disabled = disabled;
-      refs.size.disabled = disabled;
-      styleDisabledControl(refs.bilingual, disabled);
-      styleDisabledControl(refs.reverseOrder, disabled);
-      styleDisabledControl(refs.size, disabled);
+      // (and editable) when the Beta native-CC checkbox is off.
+      const nativeCcMode = !!refs.nativeCc.checked;
+      refs.bilingual.disabled = nativeCcMode;
+      refs.reverseOrder.disabled = nativeCcMode;
+      refs.size.disabled = nativeCcMode;
+      styleDisabledControl(refs.bilingual, nativeCcMode);
+      styleDisabledControl(refs.reverseOrder, nativeCcMode);
+      styleDisabledControl(refs.size, nativeCcMode);
       refs.bilingual.checked = !!browserModePrefs.bilingual;
       refs.reverseOrder.checked = !!browserModePrefs.reverseOrder;
 
       for (const label of [refs.bilingualLabel, refs.reverseOrderLabel, refs.sizeLabel]) {
-        label.classList.toggle("is-disabled", disabled);
+        label.classList.toggle("is-disabled", nativeCcMode);
       }
     }
 
@@ -124,10 +138,10 @@
     refs.bilingual.addEventListener("change", () => handlers.onPrefsChanged?.());
     refs.reverseOrder.addEventListener("change", () => handlers.onPrefsChanged?.());
     refs.nativeCc.addEventListener("change", () => {
-      if (!refs.nativeCc.checked) {
-        // Switching into native CC mode (checkbox unchecked): snapshot the
-        // browser-mode values before their controls become disabled, so
-        // they can be restored if the user switches back later.
+      if (refs.nativeCc.checked) {
+        // Switching into Beta native CC mode: snapshot the browser-mode
+        // values before their controls become disabled, so they can be
+        // restored if the user switches back later.
         browserModePrefs = {
           bilingual: refs.bilingual.checked,
           reverseOrder: refs.reverseOrder.checked,
@@ -147,22 +161,24 @@
       const prefs = await ns.storage.getPrefs();
       const cfg = await ns.storage.getConfig();
       browserModePrefs = {
-        bilingual: prefs.browserBilingual ?? (prefs.useNativeSubtitles !== false ? !!prefs.bilingual : false),
-        reverseOrder: prefs.browserReverseOrder ?? (prefs.useNativeSubtitles !== false ? !!prefs.reverseOrder : false),
+        bilingual: prefs.browserBilingual ?? (prefs.useNativeSubtitles === true ? !!prefs.bilingual : false),
+        reverseOrder: prefs.browserReverseOrder ?? (prefs.useNativeSubtitles === true ? !!prefs.reverseOrder : false),
       };
       applyProviderLabel(cfg);
       refs.enabled.checked = !!prefs.enabled;
       refs.bilingual.checked = !!browserModePrefs.bilingual;
       refs.reverseOrder.checked = !!browserModePrefs.reverseOrder;
-      refs.nativeCc.checked = prefs.useNativeSubtitles === true;
+      // Checked = Beta native CC injection; unchecked = default browser track.
+      // (prefs.useNativeSubtitles===true still means "use browser track".)
+      refs.nativeCc.checked = prefs.useNativeSubtitles !== true;
       syncRenderModeControls();
       refs.size.value = prefs.size || DEFAULT_SUBTITLE_SIZE;
       refs.target.value = (cfg.target || "ZH").toUpperCase();
     }
 
     function readPrefs() {
-      const forceBrowserTrack = !!refs.nativeCc.checked;
-      const nativeCcMode = !forceBrowserTrack;
+      const nativeCcMode = !!refs.nativeCc.checked;
+      const forceBrowserTrack = !nativeCcMode;
       if (forceBrowserTrack) {
         browserModePrefs = {
           bilingual: refs.bilingual.checked,

@@ -10,7 +10,13 @@
   } = ns.constants;
   const extensionApi = ns.browserApi;
   const KEYLESS_PROVIDERS = new Set(["google-web"]);
-  const PREFS_SCHEMA_VERSION = 2;
+  // Schema history:
+  //   v2 – defaulted to Echo360 native CC injection (useNativeSubtitles=false).
+  //   v3 – native CC injection demoted to an opt-in Beta; default is the
+  //        reliable browser <track> renderer (useNativeSubtitles=true). Note
+  //        the flag name is historical: true means "use browser track", false
+  //        means "try native CC injection".
+  const PREFS_SCHEMA_VERSION = 3;
   // Display/render prefs (enabled, bilingual, size, useNativeSubtitles, ...)
   // are a personal, browser-wide habit - not something tied to one specific
   // lesson - so they are stored under a single fixed key rather than scoped
@@ -56,16 +62,18 @@
       reverseOrder: false,
       browserBilingual: false,
       browserReverseOrder: false,
-      // Default: prefer Echo360 native CC injection. It renders with
-      // the platform's own caption look and now matches same-frame latency;
-      // bilingual_dom_renderer.js auto-falls back to the browser <track>
-      // renderer for lessons that have no native CC track at all, so this
-      // is safe as the out-of-the-box behavior rather than an opt-in.
-      useNativeSubtitles: false,
+      // Default: browser <track> renderer. Native CC injection remains
+      // available as an opt-in Beta, but at high playback speed Echo360's
+      // own caption DOM routinely lags and miss-injection is still common,
+      // so it is no longer the out-of-the-box path.
+      useNativeSubtitles: true,
       renderModeVersion: PREFS_SCHEMA_VERSION,
     };
     if (prefs.renderModeVersion !== PREFS_SCHEMA_VERSION) {
-      prefs.useNativeSubtitles = false;
+      // One-shot migration off the v2 "native CC preferred" default onto the
+      // reliable browser track. Users who want the Beta native look can
+      // re-enable it in the settings popover after upgrading.
+      prefs.useNativeSubtitles = true;
       prefs.renderModeVersion = PREFS_SCHEMA_VERSION;
     } else {
       prefs.useNativeSubtitles = prefs.useNativeSubtitles === true;
@@ -83,7 +91,7 @@
     const key = GLOBAL_PREFS_KEY;
     const obj = await extensionApi.storage.local.get(key);
     const existing = obj[key] && typeof obj[key] === "object" ? obj[key] : {};
-    const useNativeSubtitles = prefs.useNativeSubtitles === true;
+    const useNativeSubtitles = prefs.useNativeSubtitles !== false;
     const browserBilingual = useNativeSubtitles
       ? prefs.bilingual === true
       : typeof prefs.browserBilingual === "boolean"

@@ -4,7 +4,7 @@
 
 Chrome/Safari extension for loading translated subtitles on Echo360 recordings; the local FastAPI backend is kept as a development, fallback, and batch-processing path.
 
-Current extension version: **1.4.0**
+Current extension version: **1.4.2**
 
 ## What It Does
 
@@ -12,7 +12,7 @@ Current extension version: **1.4.0**
 2. Translates directly from the extension frontend by default (`direct_translator.js`); dev builds can also proxy through the local backend.
 3. If the local backend is enabled, the backend calls the bundled VTT translator script as a fallback/batch tool:
    `translator/translate_vtt_zh_deepl_native.py`
-4. Displays translated subtitles on the active Echo360 video; by default it injects into Echo360 native CC first, and automatically falls back to a browser `<track>` when the lesson has no native caption slot.
+4. Displays translated subtitles on the active Echo360 video; **the default is the browser `<track>` renderer**. Enable **使用原生 CC 注入（Beta）** in settings to try Echo360 native CC injection (may still miss cues at higher playback speeds; falls back automatically when the lesson has no native caption slot).
 5. **Incremental display while translating** (1.3.0): subtitles mount immediately on click; pending cues show `正在翻译中...` until each batch completes.
 6. **Per-provider API keys** with real-time sync between the popup and options page; switching providers loads the matching key automatically.
 
@@ -42,24 +42,23 @@ If every strategy fails, the control panel reports that no usable subtitle sourc
 
 ## Subtitle Rendering
 
-The default strategy (since 1.4.0) is **Echo360 native CC first, browser track as fallback** (`renderer.js` + `bilingual_dom_renderer.js`):
+**The default is the browser `<track>` renderer** (the reliable path). Echo360 native CC injection is an opt-in **Beta** in settings (`renderer.js` + `bilingual_dom_renderer.js`):
 
-1. Try injecting translated text into Echo360's built-in CC area (English on top, Chinese below), matching the native look.
-   - Since 1.2.1, DOM matching and injection timing are improved for same-frame updates with native CC.
-   - Since 1.3.0, this also supports **incremental display** via `updateTranslatedVtt()` cue hot updates.
-   - **Performance**: with native CC as the default, `bilingual_dom_renderer.js` no longer queries the DOM every frame (debug snapshots throttled to 250ms); `video.js` caches shadow-root discovery for 3s; `page_probe.js` stops periodic `reactHints()` walks (on-demand only when resolving a subtitle source).
-   - **UI**: profiling showed playback jank on some lessons comes from **Echo360's own player** (CSS-in-JS `insertRule` + style recalculation throughout playback; pausing stops it; not fixable from this extension). Our UI now animates the floating ball and panel with `transform`/`opacity` on the compositor thread and adds `:active` press feedback on buttons, so extension controls stay smooth even when the host page saturates the main thread.
-   - **Bug fixes**: falling back from native CC to the browser `<track>` renderer now respects the user's saved `browserBilingual`/`browserReverseOrder`; `renderCurrentCue()` bails out safely when `onNoCaptionCapability` synchronously unmounts mid-call.
-2. `hasNativeCaptionCapability()` (`source_finder.js`) distinguishes "this lesson never had a native caption slot" from "the user/Echo360 simply has CC turned off right now". Echo360's own CC is rendered through a custom DOM overlay rather than populating `video.textTracks`, so the primary signal is the **existence of the player's "Toggle Captions" button** (its `aria-label`/`title` stay in English regardless of UI language, unlike its `aria-pressed` state or the volatile generated class names); a real `<track>`/`TextTrack` also counts as capability when present, as a compatibility signal:
-   - No "Toggle Captions" button in the player controls, and no `<track>`/`TextTrack` either → treated as no capability; falls back to the browser track immediately on mount instead of waiting out a grace period first.
-   - The button exists but is currently off (`aria-pressed="false"`, the DOM never matches) → treated as an intentional choice; stays silent instead of overriding it.
-   - Safety net: even if the mount-time check was a false positive, each cue's matching grace period re-checks capability once more and still falls back automatically once it's confirmed absent (this fallback isn't persisted, so the next lesson still tries native CC first).
+1. **Default (browser track)**
+   - Single-language mode mounts the translated VTT directly.
+   - Bilingual mode is built by `subtitle_strategy.js`: Safari uses a single-cue bilingual VTT; Chrome / Edge use split-cue bilingual VTT.
+   - Bilingual/order/size controls are editable.
+2. **Optional Beta: Echo360 native CC injection**
+   - Check **使用原生 CC 注入（Beta）** in the settings popover (`ui_popover.js`) to inject the translation into Echo360's built-in CC area (English on top, Chinese below).
+   - **Known limit**: at higher playback speeds Echo360's own caption DOM often lags behind playback, so miss-injection can still occur; this path is not yet as reliable as the browser track, so it is no longer the default.
+   - Since 1.2.1, DOM matching/injection timing is improved; since 1.3.0, incremental display via `updateTranslatedVtt()` is supported.
+   - In native CC mode, bilingual/order are forced to bilingual, non-reverse; size and related controls are disabled.
+   - `hasNativeCaptionCapability()` (`source_finder.js`) distinguishes "this lesson never had a native caption slot" from "CC is simply off right now". The primary signal is the player's **"Toggle Captions" button**; a real `<track>`/`TextTrack` also counts:
+     - No button and no `<track>`/`TextTrack` → fall back to the browser track immediately on mount.
+     - Button present but off (`aria-pressed="false"`) → treated as intentional; stay silent.
+     - Safety net: after the matching grace period, confirmed lack of capability still falls back to the browser track (without persisting that choice).
 
-Check **始终使用浏览器字幕** (always use browser subtitles) in the settings popover (`ui_popover.js`) to disable the above and force the browser `<track>` renderer:
-
-- Single-language mode mounts the translated VTT directly.
-- Bilingual mode is built by `subtitle_strategy.js`: Safari uses a single-cue bilingual VTT; Chrome / Edge use split-cue bilingual VTT.
-- Bilingual/order/size are only editable in this mode; in native CC mode they're forced to bilingual with non-reverse order.
+Prefs schema v3 migrates the old "native CC preferred" default to the browser track once; users who want the native look can re-enable the Beta in settings.
 
 Display preferences (bilingual, order, size) do not require retranslation. The extension caches one translated VTT and renders client-side.
 
@@ -280,3 +279,4 @@ The extension keeps one local translated VTT cache entry. Bilingual display is r
 - If a separated intro clip exists, the extension prefers strong media-id mapping first and timeline/state matching as fallback.
 - Transcript-panel-only lessons without player CC rely on the `transcript-file` API (1.2.2); those pages have no native CC DOM to inject into, so `hasNativeCaptionCapability()` detects that and uses the browser track directly.
 - Incremental preview partial VTT is emitted per batch by `direct_translator.js`, polled via `background.js` jobs; `buildIncrementalPreviewVtt()` replaces untranslated cues with placeholder text.
+Beta-first rendering, capability detection, and perf/Ul polish 

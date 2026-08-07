@@ -235,7 +235,7 @@ describe("getPrefs normalization", () => {
   // GLOBAL_PREFS_KEY in storage.js.
   const prefsKey = () => "echo360TranslatorPrefs::global";
 
-  it("forces bilingual=true and reverseOrder=false in Echo360 native CC mode (schema v2)", async () => {
+  it("forces bilingual=true and reverseOrder=false in Echo360 native CC mode (schema v3)", async () => {
     const { storage } = setupStorage({
       storageData: {
         [prefsKey()]: {
@@ -244,7 +244,7 @@ describe("getPrefs normalization", () => {
           bilingual: false,
           reverseOrder: true,
           useNativeSubtitles: false,
-          renderModeVersion: 2,
+          renderModeVersion: 3,
         },
       },
     });
@@ -262,7 +262,7 @@ describe("getPrefs normalization", () => {
           bilingual: false,
           reverseOrder: true,
           useNativeSubtitles: true,
-          renderModeVersion: 2,
+          renderModeVersion: 3,
         },
       },
     });
@@ -273,7 +273,7 @@ describe("getPrefs normalization", () => {
 
   it('upgrades legacy size "tiny" to "medium"', async () => {
     const { storage } = setupStorage({
-      storageData: { [prefsKey()]: { size: "tiny", useNativeSubtitles: false, renderModeVersion: 2 } },
+      storageData: { [prefsKey()]: { size: "tiny", useNativeSubtitles: false, renderModeVersion: 3 } },
     });
     const prefs = await storage.getPrefs();
     expect(prefs.size).toBe("medium");
@@ -281,21 +281,21 @@ describe("getPrefs normalization", () => {
 
   it("falls back to DEFAULT_SUBTITLE_SIZE for unknown size", async () => {
     const { storage } = setupStorage({
-      storageData: { [prefsKey()]: { size: "extrasmall", useNativeSubtitles: false, renderModeVersion: 2 } },
+      storageData: { [prefsKey()]: { size: "extrasmall", useNativeSubtitles: false, renderModeVersion: 3 } },
     });
     const prefs = await storage.getPrefs();
     expect(prefs.size).toBe("medium");
   });
 
-  it("returns defaults when nothing is stored (Echo360 native CC preferred, bilingual on)", async () => {
+  it("returns defaults when nothing is stored (browser track preferred)", async () => {
     const { storage } = setupStorage({ storageData: {} });
     const prefs = await storage.getPrefs();
     expect(prefs.enabled).toBe(true);
-    expect(prefs.useNativeSubtitles).toBe(false);
-    expect(prefs.bilingual).toBe(true);
+    expect(prefs.useNativeSubtitles).toBe(true);
+    expect(prefs.bilingual).toBe(false);
   });
 
-  it("migrates legacy prefs without schema version to prefer Echo360 native CC", async () => {
+  it("migrates legacy prefs without schema version to prefer the browser track", async () => {
     const { storage } = setupStorage({
       storageData: {
         [prefsKey()]: {
@@ -303,13 +303,31 @@ describe("getPrefs normalization", () => {
           size: "medium",
           bilingual: false,
           reverseOrder: false,
-          useNativeSubtitles: true,
+          useNativeSubtitles: false,
         },
       },
     });
     const prefs = await storage.getPrefs();
-    expect(prefs.useNativeSubtitles).toBe(false);
-    expect(prefs.renderModeVersion).toBe(2);
+    expect(prefs.useNativeSubtitles).toBe(true);
+    expect(prefs.renderModeVersion).toBe(3);
+  });
+
+  it("migrates schema v2 native-CC-default prefs onto the browser track", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        [prefsKey()]: {
+          enabled: true,
+          size: "medium",
+          bilingual: true,
+          reverseOrder: false,
+          useNativeSubtitles: false,
+          renderModeVersion: 2,
+        },
+      },
+    });
+    const prefs = await storage.getPrefs();
+    expect(prefs.useNativeSubtitles).toBe(true);
+    expect(prefs.renderModeVersion).toBe(3);
   });
 });
 
@@ -374,8 +392,8 @@ describe("prefs persistence across lessons", () => {
     });
     const prefs = await storage.getPrefs();
     // Falls through to hardcoded defaults since no legacy prefs entry exists.
-    expect(prefs.useNativeSubtitles).toBe(false);
-    expect(prefs.bilingual).toBe(true);
+    expect(prefs.useNativeSubtitles).toBe(true);
+    expect(prefs.bilingual).toBe(false);
   });
 
   it("does not re-migrate once a global prefs entry already exists", async () => {
@@ -396,9 +414,11 @@ describe("prefs persistence across lessons", () => {
       },
     });
     const prefs = await storage.getPrefs();
-    // Reads the already-migrated global entry, not the stale legacy one.
+    // Reads the global entry (not the stale legacy one). Schema v2 is also
+    // migrated onto the browser-track default in the same getPrefs() pass.
     expect(prefs.size).toBe("medium");
-    expect(prefs.useNativeSubtitles).toBe(false);
+    expect(prefs.useNativeSubtitles).toBe(true);
+    expect(prefs.renderModeVersion).toBe(3);
   });
 });
 
@@ -420,7 +440,7 @@ describe("savePrefs", () => {
     expect(localMock.set).toHaveBeenCalledOnce();
     const saved = localMock._store[prefsKey()];
     expect(saved.size).toBe("large");
-    expect(saved.renderModeVersion).toBe(2);
+    expect(saved.renderModeVersion).toBe(3);
   });
 
   it("normalizes bilingual=true when useNativeSubtitles=true", async () => {
@@ -503,11 +523,11 @@ describe("savePrefs", () => {
     expect(saved.browserReverseOrder).toBe(true);
   });
 
-  it("treats missing useNativeSubtitles as false (Echo360 native CC preferred)", async () => {
+  it("treats missing useNativeSubtitles as true (browser track preferred)", async () => {
     const { storage, localMock } = setupStorage();
     await storage.savePrefs({ bilingual: false, reverseOrder: true });
     const saved = localMock._store[prefsKey()];
-    expect(saved.useNativeSubtitles).toBe(false);
+    expect(saved.useNativeSubtitles).toBe(true);
   });
 
   it("round-trips: savePrefs then getPrefs returns the same values", async () => {

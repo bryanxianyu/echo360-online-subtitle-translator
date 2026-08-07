@@ -4,7 +4,7 @@
 
 用于 Echo360 录播课的 Chrome/Safari 扩展，用来加载并显示翻译字幕；本地 FastAPI 后端保留为开发调试、fallback 和批处理路径。
 
-当前扩展版本：**1.4.0**
+当前扩展版本：**1.4.2**
 
 ## 功能概览
 
@@ -12,7 +12,7 @@
 2. 默认通过扩展前端直连翻译服务（`direct_translator.js`）；dev 构建也可以发送到本地后端。
 3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本作为 fallback/批处理工具：
   `translator/translate_vtt_zh_deepl_native.py`
-4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；默认优先注入 Echo360 原生 CC，本课程没有原生字幕位时自动回退到浏览器 `<track>` 字幕轨。
+4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；**默认使用浏览器 `<track>` 字幕轨**。设置中可勾选 **使用原生 CC 注入（Beta）** 尝试注入 Echo360 原生 CC（倍速下仍可能漏译；本课程没有原生字幕位时会自动回退）。
 5. **边翻译边显示**（1.3.0）：点击翻译后立即挂载字幕，未完成的 cue 显示 `正在翻译中...`，随批次完成逐步替换为译文。
 6. **按 provider 分别保存 API Key**；popup 与 options 页实时同步，切换 provider 时自动带出对应 Key。
 
@@ -46,24 +46,23 @@
 
 ## 字幕渲染方式
 
-默认策略（1.4.0 起）是 **Echo360 原生 CC 优先、浏览器字幕轨兜底**（`renderer.js` + `bilingual_dom_renderer.js`）：
+**默认策略是浏览器 `<track>` 字幕轨**（可靠路径）。Echo360 原生 CC 注入已降为设置中的 **Beta 可选**（`renderer.js` + `bilingual_dom_renderer.js`）：
 
-1. 尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下），外观与原生字幕一致。
-  - 1.2.1 起改进了 DOM 匹配与注入时序，可与 Echo360 原生 CC 同帧更新。
-  - 1.3.0 起同样支持**边翻译边显示**：通过 `updateTranslatedVtt()` 热更新 cue，无需等整份 VTT。
-  - **性能**：原生 CC 设为默认后，`bilingual_dom_renderer.js` 去掉每帧 DOM 子树查询，调试信息节流到 250ms；`video.js` 的 shadow root 扫描改为 3s TTL 缓存；`page_probe.js` 取消定时 `reactHints()` 深度遍历（仅在解析字幕源时按需执行）。
-  - **UI**：部分课程播放卡顿经排查来自 **Echo360 播放器自身**（CSS-in-JS 持续 `insertRule` + 样式重算，暂停即消失，扩展无法修复）。扩展 UI 侧将悬浮球/面板滑入与脉冲动画改为 `transform`/`opacity`（合成线程），并给按钮加 `:active` 按下反馈，避免在宿主页面主线程繁忙时跟着掉帧。
-  - **Bug 修复**：原生 CC 回退到浏览器字幕轨时正确使用用户保存的 `browserBilingual`/`browserReverseOrder`；`onNoCaptionCapability` 同步触发 `unmount()` 后，`renderCurrentCue()` 不再访问已清空的状态。
-2. `hasNativeCaptionCapability()`（`source_finder.js`）区分"这节课本来就没有原生字幕位"和"用户/Echo360 只是当前没打开 CC"。Echo360 自己的 CC 是通过自定义 DOM 渲染的，并不会往 `video.textTracks` 里塞真实 cue，所以主要信号是播放器控制栏里那颗 **"Toggle Captions" 按钮是否存在**（`aria-label`/`title` 不随界面语言变化，比它当前 `aria-pressed` 状态或易变的生成 class 名更稳定）；`<track>`/`TextTrack` 存在时也算有能力，作为兼容信号一起判断：
-  - 播放器控制栏里连"Toggle Captions"按钮都没有，也没有 `<track>`/`TextTrack` → 判定为没有能力，挂载时立刻改用浏览器字幕轨，不会先空等一轮才切换。
-  - 按钮存在但当前是关闭状态（`aria-pressed="false"`，一直匹配不到 DOM）→ 视为用户主动选择，保持沉默，不强行覆盖。
-  - 兜底：即使挂载时误判为"有能力"，每个 cue 的匹配宽限期结束后仍会再确认一次，一旦确认没有能力会自动切到浏览器字幕轨（这次切换不会写入已保存的偏好，下节课依然优先尝试原生 CC）。
+1. **默认（浏览器字幕轨）**
+  - 单语模式直接挂载翻译 VTT。
+  - 双语模式由 `subtitle_strategy.js` 按浏览器选择策略：Safari 使用单 cue 双语 VTT，Chrome / Edge 等使用分 cue 双语 VTT。
+  - 双语、顺序、大小等选项可编辑。
+2. **可选 Beta：Echo360 原生 CC 注入**
+  - 在设置 popover 勾选 **使用原生 CC 注入（Beta）**（`ui_popover.js`）后，尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下），外观与原生字幕一致。
+  - **已知限制**：倍速播放时 Echo360 自身 caption DOM 常落后于播放进度，仍可能出现漏译；该路径短期内无法保证与浏览器轨同等可靠，因此不再作为默认。
+  - 1.2.1 起改进了 DOM 匹配与注入时序；1.3.0 起支持通过 `updateTranslatedVtt()` **边翻译边显示**。
+  - 原生 CC 模式下双语/顺序被强制为双语、非 reverse；大小等选项不可编辑。
+  - `hasNativeCaptionCapability()`（`source_finder.js`）区分"这节课本来就没有原生字幕位"和"用户/Echo360 只是当前没打开 CC"。主要信号是播放器控制栏 **"Toggle Captions" 按钮是否存在**；`<track>`/`TextTrack` 存在时也算有能力：
+    - 没有该按钮且没有 `<track>`/`TextTrack` → 挂载时立刻回退浏览器轨。
+    - 按钮存在但关闭（`aria-pressed="false"`）→ 视为用户主动选择，保持沉默。
+    - 兜底：匹配宽限期结束后若确认无能力，仍会自动切到浏览器轨（不写入已保存偏好）。
 
-可以在设置 popover 勾选 **始终使用浏览器字幕**（`ui_popover.js`）来关闭上述自动尝试，强制只用浏览器 `<track>` 字幕轨：
-
-- 单语模式直接挂载翻译 VTT。
-- 双语模式由 `subtitle_strategy.js` 按浏览器选择策略：Safari 使用单 cue 双语 VTT，Chrome / Edge 等使用分 cue 双语 VTT。
-- 双语、顺序、大小等选项仅在此模式下可编辑；原生 CC 模式下这些选项会被强制为双语、非 reverse 顺序。
+偏好 schema v3 起会把旧版「原生 CC 默认」一次性迁移为浏览器轨默认；需要原生外观的用户可在设置中重新勾选 Beta。
 
 切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。
 

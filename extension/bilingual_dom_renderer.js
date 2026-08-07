@@ -161,36 +161,77 @@
     return normalizeText(text);
   }
 
-  function elementTextMatchesSource(element, sourceProbe, normalizedSource) {
-    const text = elementTextWithoutInjectedLine(element);
-    if (!text || text.length > Math.max(260, normalizedSource.length * 4)) return false;
-    if (!(text.includes(sourceProbe) || normalizedSource.includes(text))) return false;
-    const childMatch = Array.from(element.children || []).some((child) => {
-      if (child.matches?.(INJECTED_LINE_SELECTOR)) return false;
-      return elementTextWithoutInjectedLine(child).includes(sourceProbe);
-    });
-    return !childMatch;
+  // How far around the time-computed "expected" cue index to search when
+  // resolving what the native caption box's *actual* text corresponds to
+  // (see findCueIndexMatchingText below). Biased much further backward than
+  // forward: under main-thread pressure (especially at 2x+ playback) Echo360's
+  // own caption box lags *behind* wall-clock time - still showing an earlier
+  // cue - rather than racing ahead of it, since real time keeps advancing
+  // while its render is still catching up.
+  const NATIVE_TEXT_MATCH_WINDOW_BACK = 8;
+  const NATIVE_TEXT_MATCH_WINDOW_FORWARD = 2;
+
+  // Resolves which cue a piece of DOM text actually belongs to, searching a
+  // small window of cues around `hintIndex` (the cue findCueIndex() computed
+  // from video.currentTime) rather than only accepting that exact cue. This
+  // is the core of text-driven injection: the visible native caption text -
+  // not video.currentTime - is the source of truth for *which* translation
+  // to inject; time is only used to center the search window and to
+  // disambiguate between multiple textual matches (picking the closest).
+  function findCueIndexMatchingText(elementText, hintIndex) {
+    const text = normalizeText(elementText);
+    if (!text || hintIndex < 0 || !state?.cues.length) return -1;
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    const start = Math.max(0, hintIndex - NATIVE_TEXT_MATCH_WINDOW_BACK);
+    const end = Math.min(state.cues.length - 1, hintIndex + NATIVE_TEXT_MATCH_WINDOW_FORWARD);
+    for (let i = start; i <= end; i += 1) {
+      const candidateSource = normalizeText(state.cues[i].source);
+      if (!candidateSource) continue;
+      if (text.length > Math.max(260, candidateSource.length * 4)) continue;
+      const probe = candidateSource.length > 56 ? candidateSource.slice(0, 56) : candidateSource;
+      if (!(text.includes(probe) || candidateSource.includes(text))) continue;
+      const distance = Math.abs(i - hintIndex);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
   }
 
-  function findNativeCaptionElement(sourceText) {
-    if (!state?.player || !sourceText) return null;
-    const normalizedSource = normalizeText(sourceText);
-    if (!normalizedSource) return null;
-    const sourceProbe = normalizedSource.length > 56 ? normalizedSource.slice(0, 56) : normalizedSource;
+  // Returns { element, cueIndex, matchPath } for the native caption node to
+  // inject into, or null if none can be found right now. `cueIndex` is the
+  // cue the node's *actual* visible text resolved to - which may differ from
+  // `hintIndex` (the time-based guess) whenever Echo360's own render is
+  // lagging behind currentTime (common at high playback speed).
+  function findNativeCaptionElement(hintIndex) {
+    if (!state?.player) return null;
+    if (!state.cues[hintIndex]) return null;
 
     // Fast path: most caption widgets (including Echo360's) reuse the same
     // container element across cues and just swap its text content. Trying
     // the previously matched anchor first turns the common case into an O(1)
     // check instead of a full player-subtree scan, and skips the layout/style
-    // recalculation cost for every other element entirely.
-    if (
-      state.nativeAnchor?.isConnected &&
-      isVisibleInPlayer(state.nativeAnchor) &&
-      elementTextMatchesSource(state.nativeAnchor, sourceProbe, normalizedSource)
-    ) {
-      return state.nativeAnchor;
+    // recalculation cost for every other element entirely. The anchor's real
+    // text is resolved via the window search, so this fast path stays correct
+    // even when Echo360's box is momentarily behind our time-based guess.
+    if (state.nativeAnchor?.isConnected && isVisibleInPlayer(state.nativeAnchor)) {
+      const anchorText = elementTextWithoutInjectedLine(state.nativeAnchor);
+      const matchedIndex = findCueIndexMatchingText(anchorText, hintIndex);
+      if (matchedIndex >= 0) {
+        return { element: state.nativeAnchor, cueIndex: matchedIndex, matchPath: "sticky-o1" };
+      }
     }
 
+    // Cold start / anchor lost: no established anchor to read real text
+    // from yet. Resolve every candidate's text via the same window search
+    // (rather than only accepting hintIndex's own cue) - otherwise a scan
+    // running while Echo360's caption box is mid-catch-up (still showing an
+    // earlier cue) would find zero candidates and have to wait for a later
+    // retry, even though the right cue's text - just not the one hintIndex
+    // predicted - is already sitting in the DOM.
+    //
     // Diagnostics: every full player-subtree scan is timed and counted so
     // getDebugState() can surface *why* injection is lagging on a given
     // machine/browser - a slow scan (large/deep player DOM, or Echo360's own
@@ -210,17 +251,33 @@
       // pay for a forced layout/style read via isVisibleInPlayer below. On a
       // typical player DOM, this cuts the number of getBoundingClientRect/
       // getComputedStyle calls from "every element" down to a handful.
-      if (!elementTextMatchesSource(element, sourceProbe, normalizedSource)) continue;
+      const text = elementTextWithoutInjectedLine(element);
+      if (!text) continue;
+      const matchedIndex = findCueIndexMatchingText(text, hintIndex);
+      if (matchedIndex < 0) continue;
+      const matchedSource = normalizeText(state.cues[matchedIndex].source);
+      const matchedProbe = matchedSource.length > 56 ? matchedSource.slice(0, 56) : matchedSource;
+      // Skip elements whose match is really owed to a more specific
+      // descendant containing the matching text (avoids picking an
+      // ancestor container over the actual caption line inside it).
+      const childMatch = Array.from(element.children || []).some((child) => {
+        if (child.matches?.(INJECTED_LINE_SELECTOR)) return false;
+        return elementTextWithoutInjectedLine(child).includes(matchedProbe);
+      });
+      if (childMatch) continue;
       if (!isVisibleInPlayer(element)) continue;
 
-      const text = elementTextWithoutInjectedLine(element);
       const rect = element.getBoundingClientRect();
       const bottomScore = Math.max(0, rect.top - playerRect.top) / Math.max(1, playerRect.height);
       const hint = `${element.id || ""} ${element.className || ""} ${element.getAttribute("role") || ""}`;
       const hintScore = /(caption|subtitle|cue|text-track|cc)/i.test(hint) ? 2 : 0;
-      const lengthPenalty = Math.abs(text.length - normalizedSource.length) / Math.max(1, normalizedSource.length);
-      const score = hintScore + bottomScore - lengthPenalty;
-      if (!best || score > best.score) best = { element, score };
+      const lengthPenalty = Math.abs(text.length - matchedSource.length) / Math.max(1, matchedSource.length);
+      // Prefer a match resolved to a cue closer to hintIndex, so a
+      // technically-valid but farther-away cue in the window doesn't win
+      // out over one more consistent with where playback currently is.
+      const indexDistancePenalty = Math.abs(matchedIndex - hintIndex) * 0.5;
+      const score = hintScore + bottomScore - lengthPenalty - indexDistancePenalty;
+      if (!best || score > best.score) best = { element, cueIndex: matchedIndex, score };
     }
 
     const scanDurationMs = performance.now() - scanStart;
@@ -229,7 +286,7 @@
     state.lastScanMs = scanDurationMs;
     state.lastScanElementCount = elements.length;
 
-    return best?.element || null;
+    return best ? { element: best.element, cueIndex: best.cueIndex, matchPath: "full-scan" } : null;
   }
 
   function mutationCouldAffectActiveCaption(mutations) {
@@ -252,18 +309,36 @@
     // the text-probe filter below takes back over so unrelated player churn
     // (progress bar ticks, etc.) doesn't trigger a scan on every mutation for
     // the rest of the cue.
-    if (state.lastCueIndex >= 0 && state.nativeInjectedCueIndex !== state.lastCueIndex && !state.nativeSearchExhausted) {
+    //
+    // This deliberately includes the post-grace "exhausted" state: if we gave
+    // up on a cue because its grace period lapsed before Echo360's caption
+    // box was ready (common at high playback speed and after seeks), a
+    // caption DOM write arriving *after* grace expiry is exactly the signal
+    // to look again - the observer callback below clears
+    // nativeSearchExhausted, but only if we react to the mutation here first.
+    // A `!nativeSearchExhausted` guard here previously left the caption
+    // visible for the rest of the cue with no translation.
+    if (state.lastCueIndex >= 0 && state.nativeInjectedCueIndex !== state.lastCueIndex) {
       return true;
     }
-    const cue = state.lastCueIndex >= 0 ? state.cues[state.lastCueIndex] : null;
-    const source = normalizeText(cue?.source || "");
-    if (!source) return false;
-    const probe = source.length > 56 ? source.slice(0, 56) : source;
+    // Once a cue has been matched, filter player churn by resolving the
+    // mutation's *new text* against nearby cues. Do not compare it only with
+    // state.lastCueIndex: Echo360 can write the next (especially very short)
+    // caption before our next timeupdate/rVFC callback updates that
+    // bookkeeping. The old filter rejected that caption mutation as
+    // unrelated, and by the next 33ms check the short cue could already have
+    // disappeared. Read currentTime afresh for the best hint; if playback is
+    // in a gap, fall back to the last known index so the forward side of the
+    // text-match window can still recognize the new caption.
+    const currentIndex = findCueIndex(Number(state.video.currentTime || 0));
+    const hintIndex = currentIndex >= 0 ? currentIndex : state.lastCueIndex;
+    if (hintIndex < 0) return false;
 
     const matchesNode = (node) => {
       const target = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-      const text = normalizeText(target?.textContent || "");
-      return !!text && (text.includes(probe) || source.includes(text));
+      if (!target || target.closest?.("#echo360-translator-panel")) return false;
+      const text = elementTextWithoutInjectedLine(target);
+      return !!text && findCueIndexMatchingText(text, hintIndex) >= 0;
     };
 
     return mutations.some((mutation) => {
@@ -279,6 +354,25 @@
   // injection stays mounted.
   function isInjectedLinePresent() {
     return !!(state?.nativeAnchor?.isConnected && state.nativeAnchor.hasAttribute("data-echo360-translated-line"));
+  }
+
+  // The "already injected, nothing to do" early-return in renderCurrentCue
+  // must mean the translation the user can currently see still belongs to
+  // the text Echo360 is currently showing. Checking only attribute presence
+  // let a stale injection (anchor swapped/hidden, or its text moved on to a
+  // cue we haven't re-resolved) block re-matching for the rest of the cue.
+  // `matchedIndex >= 0` (not `=== injected`) keeps this cheap check from
+  // fighting the sticky path: whatever nearby cue the text resolves to,
+  // injectIntoNativeCaption is the one that re-resolves and re-injects.
+  function isInjectionStillValid() {
+    const anchor = state?.nativeAnchor;
+    if (!anchor?.isConnected || !anchor.hasAttribute("data-echo360-translated-line")) return false;
+    if (!isVisibleInPlayer(anchor)) return false;
+    const anchorText = elementTextWithoutInjectedLine(anchor);
+    if (!anchorText) return false;
+    const hintIndex = state.lastCueIndex >= 0 ? state.lastCueIndex : state.nativeInjectedCueIndex;
+    const matchedIndex = findCueIndexMatchingText(anchorText, hintIndex);
+    return matchedIndex >= 0 && matchedIndex === state.nativeInjectedCueIndex;
   }
 
   function clearInjectedLines() {
@@ -315,16 +409,24 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  function injectIntoNativeCaption(cue) {
-    if (!cue || state.reverseOrder) return false;
-    const anchor = findNativeCaptionElement(cue.source);
-    if (!anchor) return false;
+  // Attempts to inject the translation for whichever cue the native caption
+  // box's *actual visible text* resolves to (see findNativeCaptionElement),
+  // using `hintIndex` (the time-based guess) only to center the resolution
+  // window. Returns { cueIndex, matchPath } on success, or null.
+  function injectIntoNativeCaption(hintIndex) {
+    if (state.reverseOrder) return null;
+    const match = findNativeCaptionElement(hintIndex);
+    if (!match) return null;
+    const { element: anchor, cueIndex, matchPath } = match;
+    const cue = state.cues[cueIndex];
+    if (!cue) return null;
 
     if (state.nativeAnchor !== anchor) clearInjectedLines();
     ensureInjectionStyle();
     anchor.setAttribute("data-echo360-translated-line", "1");
     anchor.setAttribute("data-echo360-translation", cue.translation || "");
     state.nativeAnchor = anchor;
+    state.lastMatchPath = matchPath;
     const rect = anchor.getBoundingClientRect();
     state.nativeAnchorDebug = {
       tag: anchor.tagName,
@@ -337,7 +439,7 @@
         height: Math.round(rect.height),
       },
     };
-    return true;
+    return { cueIndex, matchPath };
   }
 
   function ensureAttached() {
@@ -370,8 +472,7 @@
       state.totalStallMs += gapSinceLastRender;
     }
     const index = findCueIndex(Number(state.video.currentTime || 0));
-    const injectedStillPresent = isInjectedLinePresent();
-    if (index === state.lastCueIndex && state.nativeInjectedCueIndex === index && injectedStillPresent) {
+    if (index === state.lastCueIndex && state.nativeInjectedCueIndex === index && isInjectionStillValid()) {
       publishDebugState();
       return;
     }
@@ -386,10 +487,11 @@
       // any time lost to a backlogged main thread - not just the final
       // scan's own duration.
       state.cueChangedAt = now;
-    } else if (state.nativeInjectedCueIndex === index && !injectedStillPresent) {
-      // Echo360 swapped/removed the caption node without a cue change (e.g. it
-      // re-renders its own box mid-cue). Force an immediate re-match instead of
-      // waiting on a polling interval.
+    } else if (state.nativeInjectedCueIndex === index && !isInjectionStillValid()) {
+      // Echo360 swapped/removed/hid the caption node, or its text drifted
+      // away from the injected cue, without a cue-index change (e.g. it
+      // re-renders its own box mid-cue). Force an immediate re-match instead
+      // of treating a stale injection as "done".
       state.nativeInjectedCueIndex = -2;
       state.nativeSearchExhausted = false;
     }
@@ -407,19 +509,38 @@
     // for the whole video), stop scanning altogether until a real DOM
     // mutation or cue change gives a reason to look again - otherwise this
     // would scan the entire player subtree on every video frame forever.
+    //
+    // Note nativeInjectedCueIndex holds the cue the visible text actually
+    // resolved to, which can trail `index` while Echo360's render is behind
+    // (high playback speed). In that state this keeps re-checking every
+    // trigger - the sticky-anchor path makes that an O(window) text check,
+    // not a full scan - so the moment Echo360 catches up we re-resolve.
     const shouldSearchNative = !!cue && state.nativeInjectedCueIndex !== index && !state.nativeSearchExhausted;
-    if (shouldSearchNative && injectIntoNativeCaption(cue)) {
-      state.nativeInjectedCueIndex = index;
-      state.nativeInjectionHits += 1;
-      // Diagnostics: user-visible "how long after this cue started did the
-      // translation actually appear" - the number to watch when diagnosing
-      // reports of injection lagging behind after a seek.
-      state.injectionLatencies.push({ cueIndex: index, latencyMs: Math.round(now - state.cueChangedAt) });
-      if (state.injectionLatencies.length > 30) state.injectionLatencies.shift();
-      publishDebugState();
-      return;
-    }
     if (shouldSearchNative) {
+      const result = injectIntoNativeCaption(index);
+      if (result) {
+        const { cueIndex: matchedIndex, matchPath } = result;
+        // Only count/log a fresh hit when the resolution actually moved to a
+        // new cue - repeatedly reaffirming an already-injected, still-lagging
+        // cue while waiting for Echo360 to catch up must not spam
+        // nativeInjectionHits/injectionLatencies on every trigger.
+        const isNewMatch = matchedIndex !== state.nativeInjectedCueIndex;
+        state.nativeInjectedCueIndex = matchedIndex;
+        if (isNewMatch) {
+          state.nativeInjectionHits += 1;
+          // Diagnostics: user-visible "how long after this cue started did the
+          // translation actually appear" - the number to watch when diagnosing
+          // reports of injection lagging behind after a seek.
+          state.injectionLatencies.push({
+            cueIndex: matchedIndex,
+            latencyMs: Math.round(now - state.cueChangedAt),
+            path: matchPath,
+          });
+          if (state.injectionLatencies.length > 30) state.injectionLatencies.shift();
+        }
+        publishDebugState();
+        return;
+      }
       state.nativeInjectedCueIndex = -1;
       if (now >= state.nativeCaptionWaitUntil) {
         state.nativeSearchExhausted = true;
@@ -490,6 +611,7 @@
     state.nativeSearchExhausted = false;
     state.nativeAnchor = null;
     state.nativeAnchorDebug = null;
+    state.lastMatchPath = "none";
     clearInjectedLines();
     renderCurrentCue();
     publishDebugState();
@@ -523,6 +645,9 @@
       nativeSearchExhausted: false,
       nativeAnchor: null,
       nativeAnchorDebug: null,
+      // Which path produced the last successful injection: "sticky-o1"
+      // (O(1) anchor reuse) vs "full-scan" (cold start / anchor lost).
+      lastMatchPath: "none",
       onNoCaptionCapability: typeof onNoCaptionCapability === "function" ? onNoCaptionCapability : null,
       capabilityFallbackFired: false,
       listeners: [],
@@ -597,6 +722,7 @@
       nativeInjectionHits: state.nativeInjectionHits,
       waitingForNativeCaption: performance.now() < state.nativeCaptionWaitUntil,
       nativeSearchExhausted: state.nativeSearchExhausted,
+      lastMatchPath: state.lastMatchPath,
       playerAttached: state.player.isConnected,
       nativeAnchor: state.nativeAnchorDebug,
       // --- perf diagnostics (added to debug injection lag reports) ---
