@@ -6,22 +6,23 @@
     PREFS_KEY_PREFIX,
     ONBOARDING_KEY,
     DEFAULT_SUBTITLE_SIZE,
-    SIZE_MAP,
+    SUBTITLE_SIZE_OPTIONS,
   } = ns.constants;
   const extensionApi = ns.browserApi;
   const KEYLESS_PROVIDERS = new Set(["google-web"]);
   // Schema history:
   //   v2 – defaulted to Echo360 native CC injection (useNativeSubtitles=false).
   //   v3 – native CC injection demoted to an opt-in Beta; default is the
-  //        reliable browser <track> renderer (useNativeSubtitles=true). Note
-  //        the flag name is historical: true means "use browser track", false
-  //        means "try native CC injection".
+  //        unified overlay renderer (useNativeSubtitles=true). Note the flag
+  //        name is historical: true now means "unified overlay", false means
+  //        "try native CC injection". Existing display preferences apply to
+  //        the overlay, without a schema migration.
   const PREFS_SCHEMA_VERSION = 3;
   // Display/render prefs (enabled, bilingual, size, useNativeSubtitles, ...)
   // are a personal, browser-wide habit - not something tied to one specific
   // lesson - so they are stored under a single fixed key rather than scoped
   // per lesson/pathname. Earlier versions scoped them via getContextKey()
-  // (see below), which meant choosing e.g. "always use browser subtitles" on
+  // (see below), which meant choosing e.g. "always use unified subtitles" on
   // one lesson had no effect on the next lesson opened, since each lesson's
   // unique URL produced its own separate storage entry.
   const GLOBAL_PREFS_KEY = `${PREFS_KEY_PREFIX}global`;
@@ -62,7 +63,7 @@
       reverseOrder: false,
       browserBilingual: false,
       browserReverseOrder: false,
-      // Default: browser <track> renderer. Native CC injection remains
+      // Default: unified overlay renderer. Native CC injection remains
       // available as an opt-in Beta, but at high playback speed Echo360's
       // own caption DOM routinely lags and miss-injection is still common,
       // so it is no longer the out-of-the-box path.
@@ -71,7 +72,7 @@
     };
     if (prefs.renderModeVersion !== PREFS_SCHEMA_VERSION) {
       // One-shot migration off the v2 "native CC preferred" default onto the
-      // reliable browser track. Users who want the Beta native look can
+      // unified overlay. Users who want the Beta native look can
       // re-enable it in the settings popover after upgrading.
       prefs.useNativeSubtitles = true;
       prefs.renderModeVersion = PREFS_SCHEMA_VERSION;
@@ -83,7 +84,7 @@
     prefs.bilingual = prefs.useNativeSubtitles ? prefs.browserBilingual : true;
     prefs.reverseOrder = prefs.useNativeSubtitles ? prefs.browserReverseOrder : false;
     if (prefs.size === "tiny") prefs.size = "medium";
-    else if (!SIZE_MAP[prefs.size]) prefs.size = DEFAULT_SUBTITLE_SIZE;
+    else if (!SUBTITLE_SIZE_OPTIONS.includes(prefs.size)) prefs.size = DEFAULT_SUBTITLE_SIZE;
     return prefs;
   }
 
@@ -144,6 +145,9 @@
       cfg.reasoningEffort || "",
       cfg.deepseekThinkingMode || "",
       cfg.deeplFormality || "",
+      cfg.fallbackMode || "immediate",
+      Number(cfg.repairConcurrency) || 1,
+      Number(cfg.slowSplitThreshold) || 0,
     ]);
   }
 

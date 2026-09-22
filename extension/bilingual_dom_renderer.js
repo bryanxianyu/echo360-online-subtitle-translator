@@ -555,7 +555,7 @@
           const stateBeforeCallback = state;
           state.onNoCaptionCapability?.();
           // The callback commonly re-renders synchronously (e.g. renderer.js
-          // falling back to the browser <track> renderer), which calls this
+          // falling back to the unified overlay), which calls this
           // module's unmount() - and possibly a fresh mount() - before
           // returning. `state` (the shared module binding, not a local copy)
           // may now be null or an entirely different mount; either way this
@@ -626,8 +626,8 @@
     // Fast path: skip the whole native CC DOM-injection attempt (and its per-cue
     // grace period) when this video has no Echo360-owned caption track at
     // all. There is nothing for the scanner to ever find, so failing fast
-    // here lets the caller fall back to the browser <track> renderer
-    // immediately instead of waiting out NATIVE_CAPTION_GRACE_MS per cue.
+    // here lets the caller fall back to the unified overlay immediately
+    // instead of waiting out NATIVE_CAPTION_GRACE_MS per cue.
     if (!ns.sourceFinder.hasNativeCaptionCapability(video)) return false;
 
     unmount();

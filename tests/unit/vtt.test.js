@@ -10,7 +10,6 @@
  *   hasCjk             – match / no match
  *   reorderCueTextZhFirst – single line, zh at 0, zh at idx>0, zh absent
  *   extractPrimary     – empty parts, zhLine found, zhLine absent
- *   applyCueBottom     – non-timing, existing line:, unknown size fallback
  */
 
 import { beforeAll, describe, it, expect } from "vitest";
@@ -392,84 +391,6 @@ describe("extractPrimaryTranslatedVtt", () => {
     const result = vtt.extractPrimaryTranslatedVtt(vttText);
     const blocks = vtt.parseVttBlocks(result);
     expect(blocks[0].text).toBe("Hello world");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// applyCueBottom
-// ---------------------------------------------------------------------------
-// Helper: extract the timing line from an applyCueBottom result
-function timingLineOf(vttStr) {
-  return vttStr.split("\n").find((l) => l.includes("-->")) ?? "";
-}
-
-describe("applyCueBottom", () => {
-  it("passes through non-timing lines unchanged", () => {
-    const result = vtt.applyCueBottom("WEBVTT\n\nSome text\n", "medium");
-    expect(result).toContain("WEBVTT");
-    expect(result).toContain("Some text");
-  });
-
-  it("does NOT modify a timing line that already has `line:` (early-return branch)", () => {
-    const line = "00:00:01.000 --> 00:00:02.000 line:90%";
-    const result = vtt.applyCueBottom(`WEBVTT\n\n${line}\nHello\n`, "medium");
-    expect(result).toContain("line:90%");
-    expect(result).not.toMatch(/line:97\.2%/);
-  });
-
-  it("adds line/position/align to a timing line that lacks `line:`", () => {
-    const result = vtt.applyCueBottom(
-      "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n",
-      "medium"
-    );
-    expect(result).toContain("line:97.2%");
-    expect(result).toContain("position:50%");
-    expect(result).toContain("align:middle");
-  });
-
-  it("uses CUE_LINE_MAP for known sizes", () => {
-    const r = vtt.applyCueBottom("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n", "small");
-    expect(r).toContain("line:97.2%");
-  });
-
-  it("falls back to DEFAULT_SUBTITLE_SIZE for unknown size", () => {
-    const r = vtt.applyCueBottom("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n", "giant");
-    expect(r).toContain("line:97.2%");
-  });
-
-  // Precise attribute-removal tests — kill Regex mutants (wrong quantifier / case)
-  it("completely removes old `position:` before appending new one", () => {
-    const line = "00:00:01.000 --> 00:00:02.000 position:20% align:start";
-    const timing = timingLineOf(vtt.applyCueBottom(`WEBVTT\n\n${line}\nHello\n`, "medium"));
-    // Must not appear anywhere in the timing line
-    expect(timing).not.toContain("position:20%");
-    // Only the appended canonical value should be present
-    expect(timing.split("position:").length).toBe(2); // exactly one occurrence
-    expect(timing).toContain("position:50%");
-  });
-
-  it("completely removes old `align:` before appending new one", () => {
-    const line = "00:00:01.000 --> 00:00:02.000 align:start";
-    const timing = timingLineOf(vtt.applyCueBottom(`WEBVTT\n\n${line}\nHello\n`, "medium"));
-    expect(timing).not.toContain("align:start");
-    expect(timing.split("align:").length).toBe(2);
-    expect(timing).toContain("align:middle");
-  });
-
-  it("completely removes old `line:` when a different line: value existed via replacement path", () => {
-    // A timing line with position: but no line: — the replacement regex must remove all position:
-    const line = "00:00:01.000 --> 00:00:02.000 position:30% align:end";
-    const timing = timingLineOf(vtt.applyCueBottom(`WEBVTT\n\n${line}\nHi\n`, "medium"));
-    expect((timing.match(/line:/g) || []).length).toBe(1);
-    expect((timing.match(/position:/g) || []).length).toBe(1);
-    expect((timing.match(/align:/g) || []).length).toBe(1);
-  });
-
-  it("resulting timing line ends with the canonical suffix", () => {
-    const timing = timingLineOf(
-      vtt.applyCueBottom("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHi\n", "medium")
-    );
-    expect(timing).toMatch(/line:97\.2% position:50% align:middle$/);
   });
 });
 

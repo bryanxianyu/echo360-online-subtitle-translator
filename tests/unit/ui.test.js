@@ -63,7 +63,7 @@ describe("settings popover render mode controls", () => {
     expect(noticeTip.textContent).toContain("倍速播放时仍可能漏译");
   });
 
-  it("restores browser subtitle checkboxes after toggling into Echo360 native CC Beta and back", async () => {
+  it("restores overlay checkboxes after toggling into Echo360 native CC Beta and back", async () => {
     setupUi({
       enabled: true,
       bilingual: false,
@@ -93,7 +93,7 @@ describe("settings popover render mode controls", () => {
     expect(reverseOrder.style.cursor).toBe("not-allowed");
     expect(document.getElementById("echo360-pref-size").style.filter).toBe("grayscale(1)");
 
-    // Uncheck it → back to browser track; controls re-enabled with the same
+    // Uncheck it → back to the unified overlay; controls re-enabled with the same
     // restored values.
     changeCheckbox("echo360-pref-echo360-native-cc", false);
     expect(bilingual.disabled).toBe(false);
@@ -105,7 +105,7 @@ describe("settings popover render mode controls", () => {
     expect(document.getElementById("echo360-pref-size").style.filter).toBe("");
   });
 
-  it("readPanelPrefs saves native CC effective values separately from browser subtitle prefs", async () => {
+  it("readPanelPrefs saves native CC effective values separately from overlay prefs", async () => {
     setupUi({
       enabled: true,
       bilingual: false,
@@ -128,7 +128,7 @@ describe("settings popover render mode controls", () => {
     expect(prefs.browserReverseOrder).toBe(true);
   });
 
-  it("shows saved browser subtitle checkbox states and disables them when Echo360 native CC Beta is active", async () => {
+  it("shows saved overlay checkbox states and disables them when Echo360 native CC Beta is active", async () => {
     setupUi({
       enabled: true,
       bilingual: true,

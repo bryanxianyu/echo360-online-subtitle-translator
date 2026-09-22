@@ -107,13 +107,6 @@
       if (!video) throw new Error("未找到播放器 video 元素（15s 超时）");
       if (forceRefresh) ns.renderer.cleanupTranslatedTracks();
 
-      if (!forceRefresh && ns.renderer.hasRenderedTranslatedTrack()) {
-        ns.renderer.applySubtitleVisibility(true);
-        ns.ui.updateActionButtons("翻译字幕已加载");
-        ns.ui.setStatusText("当前翻译字幕已在页面中");
-        return;
-      }
-
       const { vttText, sourceId, sourceMeta } = await ns.translationService.resolveSourceVtt(video);
       let cfg = await ns.storage.getConfig();
       cfg = await ns.storage.askApiKeyIfNeeded(cfg);
@@ -134,22 +127,13 @@
       }
 
       const renderState = ns.renderer.getRenderState();
+      // A rendered track is reusable only after the current subtitle content
+      // and translation configuration have produced the same cache identity.
       if (!forceRefresh && loadedCacheKey === cacheKey && renderState.lastTranslatedTrack) {
         ns.renderer.applySubtitleVisibility(true);
         ns.ui.updateActionButtons("翻译字幕已加载");
         ns.ui.setStatusText("已加载当前翻译字幕");
         return;
-      }
-
-      if (!forceRefresh && loadedCacheKey === cacheKey) {
-        const existing = video.querySelector('track[data-echo360-translated="1"]');
-        if (existing) {
-          ns.renderer.applySubtitleVisibility(true);
-          ns.ui.updateActionButtons("翻译字幕已加载");
-          ns.ui.setStatusText("已加载当前翻译字幕");
-          return;
-        }
-        loadedCacheKey = "";
       }
 
       if (!forceRefresh && cacheEntry?.translatedVtt && cacheEntry.cacheKey === cacheKey) {
@@ -309,11 +293,6 @@
       onPrefsChanged,
       onTargetChanged,
     });
-
-    const existing = Array.from(video.querySelectorAll('track[data-echo360-translated="1"]'));
-    if (existing.length > 0) {
-      ns.renderer.setLastTranslatedTrack(existing[existing.length - 1]);
-    }
 
     const prefs = await ns.storage.getPrefs();
     ns.renderer.applySubtitleSize(prefs.size || DEFAULT_SUBTITLE_SIZE);

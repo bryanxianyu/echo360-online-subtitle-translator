@@ -55,7 +55,7 @@
           >
             !
             <span id="echo360-beta-notice-tip" class="echo360-beta-notice-tip" role="tooltip">
-              实验功能：把译文注入 Echo360 播放器自带的 CC 区域，外观更贴近原生字幕。倍速播放时仍可能漏译；默认使用更稳定的浏览器字幕轨。本课程没有原生字幕位时会自动回退。
+              实验功能：把译文注入 Echo360 播放器自带的 CC 区域。倍速播放时仍可能漏译；默认使用跨平台统一的圆角半透明字幕。本课程没有原生字幕位时会自动回退。
             </span>
           </span>
         </span>
@@ -99,7 +99,7 @@
     };
 
     function syncRenderModeControls() {
-      // Bilingual/reverse-order/size only apply to the browser <track>
+      // Bilingual/reverse-order/size apply to the unified overlay
       // renderer: native CC injection always adds a single translated line
       // into Echo360's own caption box, so those controls are only meaningful
       // (and editable) when the Beta native-CC checkbox is off.
@@ -168,8 +168,8 @@
       refs.enabled.checked = !!prefs.enabled;
       refs.bilingual.checked = !!browserModePrefs.bilingual;
       refs.reverseOrder.checked = !!browserModePrefs.reverseOrder;
-      // Checked = Beta native CC injection; unchecked = default browser track.
-      // (prefs.useNativeSubtitles===true still means "use browser track".)
+      // Checked = Beta native CC injection; unchecked = unified overlay.
+      // Preserve the historical preference key for existing installations.
       refs.nativeCc.checked = prefs.useNativeSubtitles !== true;
       syncRenderModeControls();
       refs.size.value = prefs.size || DEFAULT_SUBTITLE_SIZE;

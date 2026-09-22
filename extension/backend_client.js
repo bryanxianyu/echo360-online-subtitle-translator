@@ -22,6 +22,7 @@
       msg.includes("Failed to fetch") ? "NETWORK_ERROR" :
       msg.includes("ModuleNotFoundError") ? "BACKEND_DEPENDENCY_MISSING" :
       msg.toLowerCase().includes("timeout") ? "TRANSLATION_TIMEOUT" :
+      msg.toLowerCase().includes("translation cancelled") ? "TRANSLATION_CANCELLED" :
       msg.toLowerCase().includes("job not found") ? "JOB_NOT_FOUND" :
       msg.toLowerCase().includes("provider") ? "PROVIDER_CONFIG_ERROR" :
       "TRANSLATION_ERROR");
@@ -31,6 +32,7 @@
     if (msg.includes("Failed to fetch")) return `${prefix} 网络请求失败。请检查网络、Provider 权限，或尝试切换 Provider。`;
     if (msg.includes("ModuleNotFoundError")) return `${prefix} 本地后端依赖缺失。请在 backend 环境执行 pip install -r requirements.txt。`;
     if (msg.toLowerCase().includes("timeout")) return `${prefix} 请求超时，请降低并发或增大超时。`;
+    if (msg.toLowerCase().includes("translation cancelled")) return `${prefix} 翻译任务已停止。`;
     if (msg.toLowerCase().includes("provider")) return `${prefix} Provider/Model 配置有误。`;
     if (msg.toLowerCase().includes("job not found")) return `${prefix} 后台任务不存在，请重试。`;
     return `${prefix} ${msg.replace(/^Error:\s*/, "")}`;
@@ -68,12 +70,21 @@
     });
   }
 
+  function cancelDirectTranslateJob(jobId) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "direct-translate-cancel", jobId }, (response) => {
+        resolve(response);
+      });
+    });
+  }
+
   async function waitDirectJob(jobId, options = {}) {
     const maxMs = 8 * 60 * 1000;
     const start = Date.now();
     let lastPartialVtt = "";
     while (Date.now() - start < maxMs) {
       if (options.isActive && !options.isActive()) {
+        await options.onCancel?.(jobId);
         throw new Error("stale job");
       }
       const job = await readDirectTranslateJob(jobId);
@@ -86,9 +97,10 @@
         options.onProgress?.(p.current, p.total);
       }
       if (job.status === "completed") return job.result;
-      if (job.status === "failed") throw new Error(formatJobError(job));
+      if (job.status === "failed" || job.status === "cancelled") throw new Error(formatJobError(job));
       await new Promise((r) => setTimeout(r, 700));
     }
+    await options.onCancel?.(jobId);
     throw new Error("翻译任务超时（超过 8 分钟）");
   }
 
@@ -97,6 +109,7 @@
     const start = Date.now();
     while (Date.now() - start < maxMs) {
       if (options.isActive && !options.isActive()) {
+        await options.onCancel?.(backendUrl, jobId);
         throw new Error("stale job");
       }
       const job = await proxyRequest(backendUrl, `/translate-async/${jobId}`);
@@ -105,9 +118,10 @@
         options.onProgress?.(p.current, p.total);
       }
       if (job.status === "completed") return job.result;
-      if (job.status === "failed") throw new Error(formatJobError(job));
+      if (job.status === "failed" || job.status === "cancelled") throw new Error(formatJobError(job));
       await new Promise((r) => setTimeout(r, 700));
     }
+    await options.onCancel?.(backendUrl, jobId);
     throw new Error("翻译任务超时（超过 8 分钟）");
   }
 
@@ -117,6 +131,7 @@
     friendlyErrorMessage,
     waitJob,
     createDirectTranslateJob,
+    cancelDirectTranslateJob,
     waitDirectJob,
   };
 })();

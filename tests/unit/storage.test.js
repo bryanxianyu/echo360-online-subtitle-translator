@@ -73,6 +73,9 @@ describe("buildConfigSignature", () => {
     reasoningEffort: "medium",
     deepseekThinkingMode: "disabled",
     deeplFormality: "default",
+    fallbackMode: "immediate",
+    repairConcurrency: 1,
+    slowSplitThreshold: 0,
   });
 
   it("is deterministic", () => {
@@ -97,6 +100,9 @@ describe("buildConfigSignature", () => {
     ["reasoningEffort",      { reasoningEffort: "high" }],
     ["deepseekThinkingMode", { deepseekThinkingMode: "enabled" }],
     ["deeplFormality",       { deeplFormality: "more" }],
+    ["fallbackMode",         { fallbackMode: "deferred" }],
+    ["repairConcurrency",    { repairConcurrency: 2 }],
+    ["slowSplitThreshold",   { slowSplitThreshold: 1 }],
   ])("changing %s produces a different signature", (_field, override) => {
     const s1 = storage.buildConfigSignature(base());
     const s2 = storage.buildConfigSignature({ ...base(), ...override });
@@ -287,7 +293,7 @@ describe("getPrefs normalization", () => {
     expect(prefs.size).toBe("medium");
   });
 
-  it("returns defaults when nothing is stored (browser track preferred)", async () => {
+  it("returns defaults when nothing is stored (unified overlay preferred)", async () => {
     const { storage } = setupStorage({ storageData: {} });
     const prefs = await storage.getPrefs();
     expect(prefs.enabled).toBe(true);
@@ -295,7 +301,7 @@ describe("getPrefs normalization", () => {
     expect(prefs.bilingual).toBe(false);
   });
 
-  it("migrates legacy prefs without schema version to prefer the browser track", async () => {
+  it("migrates legacy prefs without schema version to prefer the unified overlay", async () => {
     const { storage } = setupStorage({
       storageData: {
         [prefsKey()]: {
@@ -312,7 +318,7 @@ describe("getPrefs normalization", () => {
     expect(prefs.renderModeVersion).toBe(3);
   });
 
-  it("migrates schema v2 native-CC-default prefs onto the browser track", async () => {
+  it("migrates schema v2 native-CC-default prefs onto the unified overlay", async () => {
     const { storage } = setupStorage({
       storageData: {
         [prefsKey()]: {
@@ -475,7 +481,7 @@ describe("savePrefs", () => {
     expect(saved.browserReverseOrder).toBe(true);
   });
 
-  it("preserves previous browser subtitle prefs when entering Echo360 native CC mode", async () => {
+  it("preserves previous overlay prefs when entering Echo360 native CC mode", async () => {
     const { storage, localMock } = setupStorage();
     await storage.savePrefs({
       useNativeSubtitles: true,
@@ -498,7 +504,7 @@ describe("savePrefs", () => {
     expect(saved.browserReverseOrder).toBe(true);
   });
 
-  it("restores browser subtitle prefs after leaving Echo360 native CC mode", async () => {
+  it("restores overlay prefs after leaving Echo360 native CC mode", async () => {
     const { storage, localMock } = setupStorage();
     await storage.savePrefs({
       useNativeSubtitles: false,
@@ -523,7 +529,7 @@ describe("savePrefs", () => {
     expect(saved.browserReverseOrder).toBe(true);
   });
 
-  it("treats missing useNativeSubtitles as true (browser track preferred)", async () => {
+  it("treats missing useNativeSubtitles as true (unified overlay preferred)", async () => {
     const { storage, localMock } = setupStorage();
     await storage.savePrefs({ bilingual: false, reverseOrder: true });
     const saved = localMock._store[prefsKey()];

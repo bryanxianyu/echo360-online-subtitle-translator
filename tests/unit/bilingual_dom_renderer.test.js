@@ -884,8 +884,8 @@ describe("native caption capability detection & fallback", () => {
   });
 
   it("P23: does not throw when onNoCaptionCapability synchronously unmounts (real-world renderer.js behavior)", () => {
-    // renderer.js's real onNoCaptionCapability callback re-renders as a
-    // browser <track> synchronously, which calls this module's unmount()
+    // renderer.js's real onNoCaptionCapability callback re-renders as the
+    // unified overlay synchronously, which calls this module's unmount()
     // before returning - `state` becomes null mid-way through the still
     // -running renderCurrentCue() call that triggered the callback.
     const video = makeVideo(1.0);

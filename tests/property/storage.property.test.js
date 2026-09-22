@@ -10,7 +10,7 @@
  *
  *   getPrefs / savePrefs roundtrip
  *     P5 – save then get roundtrip preserves all boolean prefs
- *     P6 – size is always one of the valid SIZE_MAP keys after getPrefs
+ *     P6 – size is always one of the supported size options after getPrefs
  *     P7 – Echo360 native CC mode forces bilingual=true, reverseOrder=false
  *     P8 – useNativeSubtitles=true preserves bilingual/reverseOrder booleans
  *     P11 – prefs saved on one lesson pathname are read back identically on
@@ -166,7 +166,7 @@ describe("getPrefs / savePrefs properties", () => {
     );
   });
 
-  it("P6 – size is always one of valid SIZE_MAP keys after getPrefs", async () => {
+  it("P6 – size is always one of the supported options after getPrefs", async () => {
     const invalidSizes = fc.constantFrom("tiny", "huge", "xl", "", "MEDIUM", undefined, null);
     await fc.assert(
       fc.asyncProperty(invalidSizes, async (badSize) => {

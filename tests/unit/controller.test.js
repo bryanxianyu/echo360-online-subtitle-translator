@@ -63,6 +63,8 @@ function setupControllerWithRenderer() {
     useNativeSubtitles: false,
   };
   const domMount = vi.fn(() => false);
+  let overlayMounted = false;
+  const overlayMount = vi.fn(() => { overlayMounted = true; return true; });
 
   window.Echo360Translator = makeFullNs({
     browserApi: {
@@ -100,9 +102,17 @@ function setupControllerWithRenderer() {
       setVisible: vi.fn(),
       applySize: vi.fn(),
     },
+    subtitleOverlay: {
+      mount: overlayMount,
+      unmount: vi.fn(() => { overlayMounted = false; }),
+      isMounted: () => overlayMounted,
+      getVideo: () => overlayMounted ? video : null,
+      setVisible: vi.fn(),
+      applySize: vi.fn(),
+      refresh: vi.fn(),
+    },
   });
   evalModule("vtt.js");
-  evalModule("subtitle_strategy.js");
   evalModule("renderer.js");
   evalModule("controller.js");
   return { ns: window.Echo360Translator, video, domMount };
@@ -120,20 +130,20 @@ describe("controller track sync in Echo360 native CC mode", () => {
     vi.restoreAllMocks();
   });
 
-  it("falls back to a browser track when native CC DOM mounting fails, and periodic sync does not re-attempt native CC mounting afterwards", async () => {
+  it("falls back to the unified overlay when native CC mounting fails", async () => {
     const { ns, video, domMount } = setupControllerWithRenderer();
 
     const mounted = ns.renderer.renderTranslatedTrack(TRANS_VTT, ORIG_VTT, true, "medium", false, null, false);
     expect(mounted).toBe(true);
     expect(domMount).toHaveBeenCalledOnce();
-    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(0);
 
     await ns.controller.init();
     await vi.advanceTimersByTimeAsync(2400);
 
-    // A browser track is already showing (the automatic fallback), so
-    // periodic sync should not keep re-attempting the failed native CC mount.
+    // The overlay is already mounted, so periodic sync should not keep
+    // re-attempting the failed native CC mount.
     expect(domMount).toHaveBeenCalledOnce();
-    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(1);
+    expect(video.querySelectorAll('track[data-echo360-translated="1"]').length).toBe(0);
   });
 });

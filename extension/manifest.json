@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Echo360 Online Subtitle Translator",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "Translate Echo360 lecture subtitles and display them on recorded videos.",
   "options_page": "options.html",
   "icons": {
@@ -45,6 +45,18 @@
     "*://echo360.net/*",
     "*://*.echo360.net/*"
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/NotoSansCJKsc-Regular.otf"],
+      "matches": [
+        "*://canvas.sydney.edu.au/*",
+        "*://*.echo360.org/*", "*://echo360.org/*",
+        "*://*.echo360.com/*", "*://echo360.com/*",
+        "*://*.echo360.net.au/*", "*://echo360.net.au/*",
+        "*://*.echo360.net/*", "*://echo360.net/*"
+      ]
+    }
+  ],
   "content_scripts": [
     {
       "matches": [
@@ -83,11 +95,13 @@
         "browser_api.js",
         "constants.js",
         "vtt.js",
-        "subtitle_strategy.js",
         "storage.js",
         "video.js",
         "source_finder.js",
         "bilingual_dom_renderer.js",
+        "subtitle_timeline.js",
+        "subtitle_layout.js",
+        "subtitle_overlay.js",
         "renderer.js",
         "ui_theme.js",
         "ui_styles.js",

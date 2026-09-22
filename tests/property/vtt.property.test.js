@@ -14,11 +14,6 @@
  *     P7 – never throws on arbitrary string input
  *     P8 – CRLF and LF inputs produce identical blocks
  *
- *   applyCueBottom
- *     P9  – every timing line in the output contains "line:" setting
- *     P10 – non-timing lines are preserved unchanged
- *     P11 – idempotent: applying twice = applying once
- *
  *   cueTextToLine
  *     P12 – result never contains \r
  *     P13 – result is always trimmed
@@ -192,46 +187,6 @@ describe("parseVttBlocks properties", () => {
         const fromCrlf = vtt.parseVttBlocks(crlf);
         if (fromLf.length !== fromCrlf.length) return false;
         return fromLf.every((b, i) => b.text === fromCrlf[i].text);
-      }),
-      { numRuns: 500 },
-    );
-  });
-});
-
-// ─── applyCueBottom ──────────────────────────────────────────────────────────
-
-describe("applyCueBottom properties", () => {
-  const sizes = fc.constantFrom("small", "medium", "large", undefined);
-
-  it("P9 – every timing line in output contains a 'line:' setting", () => {
-    fc.assert(
-      fc.property(arbVtt, sizes, (vttText, size) => {
-        const out = vtt.applyCueBottom(vttText, size);
-        return out.split("\n")
-          .filter((l) => l.includes("-->"))
-          .every((l) => l.includes("line:"));
-      }),
-      { numRuns: 500 },
-    );
-  });
-
-  it("P10 – non-timing lines are passed through unchanged", () => {
-    fc.assert(
-      fc.property(arbVtt, sizes, (vttText, size) => {
-        const inLines = vttText.split("\n").filter((l) => !l.includes("-->"));
-        const outLines = vtt.applyCueBottom(vttText, size).split("\n").filter((l) => !l.includes("-->"));
-        return inLines.every((l) => outLines.includes(l));
-      }),
-      { numRuns: 500 },
-    );
-  });
-
-  it("P11 – idempotent: applying twice equals applying once", () => {
-    fc.assert(
-      fc.property(arbVtt, sizes, (vttText, size) => {
-        const once = vtt.applyCueBottom(vttText, size);
-        const twice = vtt.applyCueBottom(once, size);
-        return once === twice;
       }),
       { numRuns: 500 },
     );

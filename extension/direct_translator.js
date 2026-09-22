@@ -280,11 +280,21 @@ globalThis.Echo360DirectTranslator = (() => {
     return ["immediate", "deferred", "deferred-fastpath"].includes(value) ? value : "immediate";
   }
 
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  function sleep(ms, isCancelled = () => false) {
+    if (isCancelled()) return Promise.reject(new Error("translation cancelled"));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (isCancelled()) reject(new Error("translation cancelled"));
+        else resolve();
+      }, ms);
+      if (isCancelled()) {
+        clearTimeout(timer);
+        reject(new Error("translation cancelled"));
+      }
+    });
   }
 
-  function createRateLimiter(rps) {
+  function createRateLimiter(rps, isCancelled = () => false) {
     const rate = Number(rps) || 0;
     if (rate <= 0) return async () => {};
 
@@ -297,16 +307,24 @@ globalThis.Echo360DirectTranslator = (() => {
         const now = Date.now();
         const waitMs = Math.max(0, nextAt - now);
         nextAt = Math.max(now, nextAt) + gapMs;
-        if (waitMs > 0) await sleep(waitMs);
+        if (isCancelled()) throw new Error("translation cancelled");
+        if (waitMs > 0) await sleep(waitMs, isCancelled);
       });
       chain = run.catch(() => {});
       return run;
     };
   }
 
-  async function fetchJson(url, init, timeoutSeconds, waitForRequest = async () => {}) {
+  async function fetchJson(url, init, timeoutSeconds, waitForRequest = async () => {}, isCancelled = () => false, abortSignal = null) {
+    if (isCancelled()) throw new Error("translation cancelled");
     await waitForRequest();
+    if (isCancelled()) throw new Error("translation cancelled");
     const controller = new AbortController();
+    const abortHandler = () => controller.abort();
+    if (abortSignal) {
+      if (abortSignal.aborted) controller.abort();
+      else abortSignal.addEventListener("abort", abortHandler, { once: true });
+    }
     const timer = setTimeout(() => controller.abort(), Math.max(1, Number(timeoutSeconds) || 30) * 1000);
     try {
       const resp = await fetch(url, { ...init, signal: controller.signal });
@@ -319,6 +337,7 @@ globalThis.Echo360DirectTranslator = (() => {
       }
     } finally {
       clearTimeout(timer);
+      abortSignal?.removeEventListener("abort", abortHandler);
     }
   }
 
@@ -375,7 +394,7 @@ globalThis.Echo360DirectTranslator = (() => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-    }, cfg.timeout, cfg.waitForRequest);
+    }, cfg.timeout, cfg.waitForRequest, cfg.isCancelled, cfg.abortSignal);
     return extractOpenAiText(data);
   }
 
@@ -397,7 +416,7 @@ globalThis.Echo360DirectTranslator = (() => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
-    }, cfg.timeout, cfg.waitForRequest);
+    }, cfg.timeout, cfg.waitForRequest, cfg.isCancelled, cfg.abortSignal);
     return extractChatText(data);
   }
 
@@ -415,7 +434,7 @@ globalThis.Echo360DirectTranslator = (() => {
         contents: [{ role: "user", parts: [{ text: prompt.user }] }],
         generationConfig: { temperature: 0 },
       }),
-    }, cfg.timeout, cfg.waitForRequest);
+    }, cfg.timeout, cfg.waitForRequest, cfg.isCancelled, cfg.abortSignal);
     return extractGeminiText(data);
   }
 
@@ -435,7 +454,7 @@ globalThis.Echo360DirectTranslator = (() => {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body,
-    }, cfg.timeout, cfg.waitForRequest);
+    }, cfg.timeout, cfg.waitForRequest, cfg.isCancelled, cfg.abortSignal);
     return (data.translations || []).map((item) => item.text || "");
   }
 
@@ -448,7 +467,7 @@ globalThis.Echo360DirectTranslator = (() => {
       const data = await fetchJson(url, {
         method: "GET",
         headers: { "Accept": "application/json,text/plain,*/*" },
-      }, cfg.timeout, cfg.waitForRequest);
+      }, cfg.timeout, cfg.waitForRequest, cfg.isCancelled, cfg.abortSignal);
       out.push(extractGoogleWebText(data));
     }
     return out;
@@ -488,6 +507,10 @@ globalThis.Echo360DirectTranslator = (() => {
     );
   }
 
+  function isCancellationError(message) {
+    return String(message || "").toLowerCase().includes("translation cancelled");
+  }
+
   async function translateBatchChecked(texts, cfg, options = {}) {
     const started = Date.now();
     const translated = await translateBatch(texts, cfg, options);
@@ -506,10 +529,10 @@ globalThis.Echo360DirectTranslator = (() => {
 
   async function translateBatchRecursive(texts, cfg, retries, warnings, label) {
     try {
-      return await withRetries(() => translateBatchChecked(texts, cfg, { jsonFallback: true }), retries);
+      return await withRetries(() => translateBatchChecked(texts, cfg, { jsonFallback: true }), retries, cfg.isCancelled);
     } catch (err) {
       const message = err?.message || String(err);
-      if (isNonRecoverableError(message)) throw err;
+      if (cfg.isCancelled() || isNonRecoverableError(message) || isCancellationError(message)) throw new Error("translation cancelled");
       if (supportsRecursiveFallback(cfg.provider) && texts.length > 1) {
         const mid = Math.floor(texts.length / 2);
         const left = await translateBatchRecursive(texts.slice(0, mid), cfg, retries, warnings, `${label} left`);
@@ -525,14 +548,15 @@ globalThis.Echo360DirectTranslator = (() => {
     }
   }
 
-  async function withRetries(fn, retries) {
+  async function withRetries(fn, retries, isCancelled = () => false) {
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       try {
         return await fn();
       } catch (err) {
         lastErr = err;
-        if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+        if (isCancelled()) throw new Error("translation cancelled");
+        if (attempt < retries) await sleep(700 * (attempt + 1), isCancelled);
       }
     }
     throw lastErr;
@@ -562,8 +586,10 @@ globalThis.Echo360DirectTranslator = (() => {
     const cfg = {
       ...payload,
       provider: normalizeProvider(payload.provider),
-      waitForRequest: createRateLimiter(payload.rps),
+      isCancelled: handlers.isCancelled || (() => false),
+      abortSignal: handlers.abortSignal || null,
     };
+    cfg.waitForRequest = createRateLimiter(payload.rps, cfg.isCancelled);
     const lines = String(payload.vtt_text || "").replace(/\r/g, "").split("\n");
     const items = [];
     const lineParts = new Map();
@@ -615,6 +641,7 @@ globalThis.Echo360DirectTranslator = (() => {
 
     async function worker() {
       while (nextBatch < batches.length) {
+        if (cfg.isCancelled()) throw new Error("translation cancelled");
         const batchNo = nextBatch;
         nextBatch += 1;
         const batch = batches[batchNo];
@@ -632,13 +659,14 @@ globalThis.Echo360DirectTranslator = (() => {
           } else {
             const translated = await withRetries(
               () => translateBatchChecked(texts, cfg, { jsonFallback: fallbackMode !== "deferred-fastpath" }),
-              retries
+              retries,
+              cfg.isCancelled
             );
             applyBatchResult(batch, translated);
           }
         } catch (err) {
           const message = err?.message || String(err);
-          if (isNonRecoverableError(message)) throw err;
+          if (cfg.isCancelled() || isNonRecoverableError(message) || isCancellationError(message)) throw new Error("translation cancelled");
           if (fallbackMode === "immediate") {
             warnings.push(`batch ${batchNo + 1}/${batches.length} failed: ${message}`);
             keepOriginalBatch(batch);
@@ -657,6 +685,7 @@ globalThis.Echo360DirectTranslator = (() => {
 
       async function repairWorker() {
         while (nextRepair < deferredFailures.length) {
+          if (cfg.isCancelled()) throw new Error("translation cancelled");
           const item = deferredFailures[nextRepair];
           nextRepair += 1;
           try {
@@ -664,7 +693,8 @@ globalThis.Echo360DirectTranslator = (() => {
             if (fallbackMode === "deferred-fastpath") {
               translated = await withRetries(
                 () => translateBatchChecked(item.texts, cfg, { jsonFallback: true }),
-                retries
+                retries,
+                cfg.isCancelled
               );
             } else {
               translated = await translateBatchRecursive(
@@ -678,7 +708,7 @@ globalThis.Echo360DirectTranslator = (() => {
             applyBatchResult(item.batch, translated);
           } catch (err) {
             const message = err?.message || String(err);
-            if (isNonRecoverableError(message)) throw err;
+            if (cfg.isCancelled() || isNonRecoverableError(message) || isCancellationError(message)) throw new Error("translation cancelled");
             warnings.push(`repair batch ${item.batchNo + 1}/${batches.length} failed: ${message}`);
             keepOriginalBatch(item.batch);
           }

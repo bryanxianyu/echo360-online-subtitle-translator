@@ -23,6 +23,7 @@ DEFAULT_TRANSLATOR_SCRIPT = Path(__file__).resolve().parent.parent / "translator
 TRANSLATOR_SCRIPT = Path(os.getenv("TRANSLATOR_SCRIPT", str(DEFAULT_TRANSLATOR_SCRIPT)))
 JOB_TTL_SECONDS = 60 * 60
 JOB_MAX_COUNT = 100
+CACHE_KEY_VERSION = "v2"
 KEYLESS_PROVIDERS = {"google-web"}
 WEB_PROVIDER_LIMITS = {
     "google-web": {"concurrency": 96, "max_chars": 1200, "max_paragraphs": 10, "timeout": 10.0},
@@ -53,6 +54,10 @@ class TranslateRequest(BaseModel):
 
 class TranslateAsyncRequest(TranslateRequest):
     force_refresh: bool = False
+
+
+class TranslationCancelled(Exception):
+    """Raised when an asynchronous translation is cancelled by the client."""
 
 
 app = FastAPI(title="Echo360 Online Subtitle Translator", version="0.1.0")
@@ -239,6 +244,7 @@ def build_translator_args(
 
 def build_cache_key(vtt_text: str, req: TranslateRequest) -> str:
     digest_input = {
+        "cache_version": CACHE_KEY_VERSION,
         "vtt_text": vtt_text,
         "provider": req.provider,
         "model": req.model,
@@ -263,6 +269,7 @@ def run_translation(
     req: TranslateRequest,
     force_refresh: bool = False,
     progress_callback=None,
+    cancel_event: threading.Event | None = None,
 ) -> tuple[str, list[str], bool]:
     warnings: list[str] = []
     provider_name = (req.provider or "").strip().lower()
@@ -314,6 +321,14 @@ def run_translation(
             output_lines: list[str] = []
             assert proc.stdout is not None
             for line in proc.stdout:
+                if cancel_event and cancel_event.is_set():
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    raise TranslationCancelled()
                 line = line.rstrip("\n")
                 output_lines.append(line)
                 logger.info("[translator] %s", line)
@@ -321,12 +336,14 @@ def run_translation(
                 if match and progress_callback:
                     progress_callback(int(match.group(1)), int(match.group(2)), line)
             return_code = proc.wait()
+            if cancel_event and cancel_event.is_set():
+                raise TranslationCancelled()
             if return_code != 0:
                 logger.error("translator failed, returncode=%s", return_code)
                 tail = "\n".join(output_lines[-30:]).strip()
                 detail = tail or "translator command failed"
                 raise HTTPException(status_code=500, detail=detail[:1000])
-        except HTTPException:
+        except (HTTPException, TranslationCancelled):
             raise
         except Exception as exc:
             logger.exception("translator execution error")
@@ -341,7 +358,7 @@ def run_translation(
 
 def cleanup_jobs_locked(now: int | None = None) -> None:
     now = now or int(time.time())
-    removable_statuses = {"completed", "failed"}
+    removable_statuses = {"completed", "failed", "cancelled", "interrupted"}
     for job_id, job in list(_jobs.items()):
         if job.get("status") in removable_statuses and now - int(job.get("updated_at", now)) > JOB_TTL_SECONDS:
             del _jobs[job_id]
@@ -381,15 +398,21 @@ def _run_job(job_id: str, req: TranslateAsyncRequest) -> None:
             job["updated_at"] = int(time.time())
 
     try:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            cancel_event = job.get("cancel_event") if job else None
         translated_vtt, warnings, cache_hit = run_translation(
             req.vtt_text,
             req,
             force_refresh=req.force_refresh,
             progress_callback=on_progress,
+            cancel_event=cancel_event,
         )
         with _jobs_lock:
             job = _jobs.get(job_id)
             if not job:
+                return
+            if job.get("status") == "cancelled" or (cancel_event and cancel_event.is_set()):
                 return
             job["status"] = "completed"
             job["result"] = {
@@ -398,6 +421,14 @@ def _run_job(job_id: str, req: TranslateAsyncRequest) -> None:
                 "cache_hit": cache_hit,
             }
             job["updated_at"] = int(time.time())
+    except TranslationCancelled:
+        with _jobs_lock:
+            job = _jobs.get(job_id)
+            if job:
+                job["status"] = "cancelled"
+                job["error"] = "translation cancelled"
+                job["error_code"] = "TRANSLATION_CANCELLED"
+                job["updated_at"] = int(time.time())
     except Exception as exc:
         status_code = getattr(exc, "status_code", None)
         error_text = getattr(exc, "detail", None) or str(exc) or exc.__class__.__name__
@@ -428,6 +459,7 @@ def translate_async(req: TranslateAsyncRequest) -> dict:
             "status_code": None,
             "created_at": int(time.time()),
             "updated_at": int(time.time()),
+            "cancel_event": threading.Event(),
         }
     worker = threading.Thread(target=_run_job, args=(job_id, req), daemon=True)
     worker.start()
@@ -441,4 +473,24 @@ def translate_async_status(job_id: str) -> dict:
         job = _jobs.get(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="job not found")
-        return job
+        return public_job(job)
+
+
+def public_job(job: dict) -> dict:
+    return {key: value for key, value in job.items() if key != "cancel_event"}
+
+
+@app.delete("/translate-async/{job_id}")
+def cancel_translate_async(job_id: str) -> dict:
+    with _jobs_lock:
+        cleanup_jobs_locked()
+        job = _jobs.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="job not found")
+        if job.get("status") not in {"completed", "failed", "cancelled"}:
+            job["status"] = "cancelled"
+            job["error"] = "translation cancelled"
+            job["error_code"] = "TRANSLATION_CANCELLED"
+            job["updated_at"] = int(time.time())
+            job["cancel_event"].set()
+        return public_job(job)

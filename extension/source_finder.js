@@ -4,9 +4,10 @@
   const vttApi = ns.vtt;
 
   function findBestTrackElement(video) {
-    const tracks = Array.from(video.querySelectorAll("track[src]"));
+    const isOriginalTrack = (track) => !track.hasAttribute("data-echo360-translated") && !String(track.label || "").includes("翻译字幕");
+    const tracks = Array.from(video.querySelectorAll("track[src]")).filter(isOriginalTrack);
     if (tracks.length > 0) return tracks[0];
-    const textTracks = Array.from(document.querySelectorAll("track[src]"));
+    const textTracks = Array.from(document.querySelectorAll("track[src]")).filter(isOriginalTrack);
     return textTracks[0] || null;
   }
 
@@ -47,7 +48,8 @@
   }
 
   async function exportVttFromTextTracks(video, timeoutMs = 8000) {
-    const tracks = Array.from(video.textTracks || []);
+    const ownTracks = new Set(Array.from(video.querySelectorAll?.('track[data-echo360-translated="1"]') || []).map((el) => el.track));
+    const tracks = Array.from(video.textTracks || []).filter((track) => !ownTracks.has(track) && !(track.label || "").includes("翻译字幕"));
     if (tracks.length === 0) return "";
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
@@ -332,6 +334,7 @@
 
   ns.sourceFinder = {
     findBestTrackElement,
+    findCaptionToggleButton,
     hasNativeCaptionCapability,
     exportVttFromTextTracks,
     collectCandidateSubtitleUrls,

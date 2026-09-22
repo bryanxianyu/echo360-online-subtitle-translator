@@ -5,6 +5,7 @@ const buildConfig = globalThis.Echo360BuildConfig || {};
 const STORAGE_KEY = "echo360TranslatorConfig";
 const KEYLESS_PROVIDERS_BG = new Set(["google-web"]);
 const DIRECT_CACHE_KEY = "echo360DirectTranslateCache";
+const DIRECT_CACHE_VERSION = "v2";
 const DIRECT_CACHE_MAX_ENTRIES = 10;
 const DIRECT_CACHE_MAX_CHARS = 5_000_000;
 const DIRECT_JOB_TTL_MS = 60 * 60 * 1000;
@@ -19,6 +20,7 @@ async function sha256Text(text) {
 
 async function buildDirectCacheKey(payload) {
   const digestInput = {
+    cache_version: DIRECT_CACHE_VERSION,
     vtt_text: payload.vtt_text || "",
     provider: payload.provider || "",
     model: payload.model || "",
@@ -30,6 +32,9 @@ async function buildDirectCacheKey(payload) {
     reasoning_effort: payload.reasoning_effort || "",
     deepseek_thinking_mode: payload.deepseek_thinking_mode || "",
     deepl_formality: payload.deepl_formality || "",
+    fallback_mode: payload.fallback_mode || "immediate",
+    repair_concurrency: payload.repair_concurrency || 1,
+    slow_split_threshold: payload.slow_split_threshold || 0,
   };
   return sha256Text(JSON.stringify(digestInput));
 }
@@ -123,7 +128,12 @@ function createDirectJob(payload) {
     error: "",
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    cancelled: false,
   };
+  Object.defineProperty(job, "abortController", {
+    value: new AbortController(),
+    enumerable: false,
+  });
   directJobs.set(jobId, job);
 
   (async () => {
@@ -132,6 +142,7 @@ function createDirectJob(payload) {
       if (!payload.force_refresh) {
         const cached = await getDirectCacheEntry(cacheKey);
         if (cached) {
+          if (job.cancelled) return;
           job.status = "completed";
           job.result = { translated_vtt: cached.translated_vtt, warnings: [], cache_hit: true };
           job.updatedAt = Date.now();
@@ -139,6 +150,8 @@ function createDirectJob(payload) {
         }
       }
       const result = await Echo360DirectTranslator.translateVtt(payload, {
+        isCancelled: () => job.cancelled,
+        abortSignal: job.abortController.signal,
         onProgress: (current, total, line = "") => {
           job.progress = { current, total, line };
           job.updatedAt = Date.now();
@@ -163,6 +176,7 @@ function createDirectJob(payload) {
         console.warn("[echo360-translator] direct cache write failed:", err?.message || String(err));
       }
     } catch (err) {
+      if (job.cancelled) return;
       job.status = "failed";
       job.error = err?.message || String(err);
       job.updatedAt = Date.now();
@@ -239,6 +253,20 @@ extensionApi.runtime.addOnMessageListener(async (message) => {
     if (!job) {
       return { ok: false, error: "job not found" };
     }
+    return { ok: true, data: job };
+  }
+
+  if (message.type === "direct-translate-cancel") {
+    const job = directJobs.get(message.jobId);
+    if (!job) return { ok: false, error: "job not found" };
+    if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+      return { ok: true, data: job };
+    }
+    job.cancelled = true;
+    job.status = "cancelled";
+    job.error = "translation cancelled";
+    job.updatedAt = Date.now();
+    job.abortController.abort();
     return { ok: true, data: job };
   }
 

@@ -4,7 +4,7 @@
 
 用于 Echo360 录播课的 Chrome/Safari 扩展，用来加载并显示翻译字幕；本地 FastAPI 后端保留为开发调试、fallback 和批处理路径。
 
-当前扩展版本：**1.4.2**
+当前扩展版本：**1.5.0**
 
 ## 功能概览
 
@@ -12,7 +12,7 @@
 2. 默认通过扩展前端直连翻译服务（`direct_translator.js`）；dev 构建也可以发送到本地后端。
 3. 如果启用本地后端，后端会调用仓库内的 VTT 翻译脚本作为 fallback/批处理工具：
   `translator/translate_vtt_zh_deepl_native.py`
-4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；**默认使用浏览器 `<track>` 字幕轨**。设置中可勾选 **使用原生 CC 注入（Beta）** 尝试注入 Echo360 原生 CC（倍速下仍可能漏译；本课程没有原生字幕位时会自动回退）。
+4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；**默认使用跨平台统一的圆角半透明字幕覆盖层**。设置中可勾选 **使用原生 CC 注入（Beta）** 尝试注入 Echo360 原生 CC（倍速下仍可能漏译；本课程没有原生字幕位时会自动回退）。
 5. **边翻译边显示**（1.3.0）：点击翻译后立即挂载字幕，未完成的 cue 显示 `正在翻译中...`，随批次完成逐步替换为译文。
 6. **按 provider 分别保存 API Key**；popup 与 options 页实时同步，切换 provider 时自动带出对应 Key。
 
@@ -46,25 +46,29 @@
 
 ## 字幕渲染方式
 
-**默认策略是浏览器 `<track>` 字幕轨**（可靠路径）。Echo360 原生 CC 注入已降为设置中的 **Beta 可选**（`renderer.js` + `bilingual_dom_renderer.js`）：
+**默认策略是独立 HTML 覆盖层**。普通播放与播放器容器全屏共享同一套布局，不使用系统的 WebVTT 字幕样式。Echo360 原生 CC 注入仍是 **Beta 可选**。
 
-1. **默认（浏览器字幕轨）**
-  - 单语模式直接挂载翻译 VTT。
-  - 双语模式由 `subtitle_strategy.js` 按浏览器选择策略：Safari 使用单 cue 双语 VTT，Chrome / Edge 等使用分 cue 双语 VTT。
-  - 双语、顺序、大小等选项可编辑。
+当 Echo360 原生 CC 已打开时，翻译层会继续显示；两者重叠可以明确提示用户关闭原生 CC。扩展不会自动点击 CC 按钮，也不会修改原生 TextTrack 的显示状态，因此用户的 CC 选择不会被扩展反复改写。
+
+1. **默认（统一字幕覆盖层）**
+  - Shadow DOM 隔离样式，使用白字、圆角半透明深灰背景；字幕向上换行。
+  - 原文和译文按视频时间同步，双语、顺序、大小无需重新翻译即可调整；增量翻译复用同一字幕层。
+  - 位置依据视频实际可见区域、窗口与祖先裁切边界计算；控制栏抬起或落下不会改变字幕位置。
+  - 随扩展离线打包 Noto Sans CJK SC，统一常用拉丁文与 CJK 字体；其他文字使用系统后备字体。字体抗锯齿仍可能有系统差异。
+  - 视频元素自身全屏、Safari 原生视频全屏、视频画中画使用 `<track>` 回退；这些模式的外观和字幕可用性由浏览器决定，不承诺与覆盖层一致。
 2. **可选 Beta：Echo360 原生 CC 注入**
   - 在设置 popover 勾选 **使用原生 CC 注入（Beta）**（`ui_popover.js`）后，尝试把译文注入 Echo360 播放器自带 CC 区域（英文在上、中文在下），外观与原生字幕一致。
-  - **已知限制**：倍速播放时 Echo360 自身 caption DOM 常落后于播放进度，仍可能出现漏译；该路径短期内无法保证与浏览器轨同等可靠，因此不再作为默认。
+  - **已知限制**：倍速播放时 Echo360 自身 caption DOM 常落后于播放进度，仍可能出现漏译，因此不作为默认。
   - 1.2.1 起改进了 DOM 匹配与注入时序；1.3.0 起支持通过 `updateTranslatedVtt()` **边翻译边显示**。
   - 原生 CC 模式下双语/顺序被强制为双语、非 reverse；大小等选项不可编辑。
   - `hasNativeCaptionCapability()`（`source_finder.js`）区分"这节课本来就没有原生字幕位"和"用户/Echo360 只是当前没打开 CC"。主要信号是播放器控制栏 **"Toggle Captions" 按钮是否存在**；`<track>`/`TextTrack` 存在时也算有能力：
-    - 没有该按钮且没有 `<track>`/`TextTrack` → 挂载时立刻回退浏览器轨。
+    - 没有该按钮且没有 `<track>`/`TextTrack` → 挂载时立刻回退统一字幕层。
     - 按钮存在但关闭（`aria-pressed="false"`）→ 视为用户主动选择，保持沉默。
-    - 兜底：匹配宽限期结束后若确认无能力，仍会自动切到浏览器轨（不写入已保存偏好）。
+    - 兜底：匹配宽限期结束后若确认无能力，仍会自动切到统一字幕层（不写入已保存偏好）。
 
-偏好 schema v3 起会把旧版「原生 CC 默认」一次性迁移为浏览器轨默认；需要原生外观的用户可在设置中重新勾选 Beta。
+保留偏好 schema v3；原浏览器字幕模式现在使用覆盖层，已保存的双语、顺序和大小继续有效。需要原生 CC 的用户可在设置中勾选 Beta。
 
-切换显示偏好（双语、顺序、大小）不需要重新翻译；扩展端只缓存一份翻译 VTT，在前端渲染。
+切换显示偏好不需要重新翻译，缓存译文由前端渲染。布局维护与跨平台验收见 [字幕渲染维护说明](docs/subtitle-rendering.md)。
 
 ## 目录结构
 
@@ -84,12 +88,14 @@ browser_api.js            Chrome / Safari storage 与 runtime API 抽象
 config_keys.js            popup/options 共用的 per-provider API Key 逻辑
 constants.js              共享默认值和选项列表
 vtt.js                    纯 VTT 解析、格式化、双语与增量预览工具
-subtitle_strategy.js      浏览器检测与双语 VTT 构建策略
 storage.js                配置、偏好和本地字幕缓存
 video.js                  Echo360 视频发现、media-id 线索和页面探针桥接
 source_finder.js          字幕源发现（含 transcript-file API）和字幕到视频匹配
 bilingual_dom_renderer.js Echo360 原生 CC DOM 双语注入
-renderer.js               浏览器字幕 track / 原生 CC DOM 渲染编排与 cue 样式
+renderer.js               统一字幕层 / 原生 CC DOM 渲染编排与兼容回退
+subtitle_timeline.js      时间轴解析、重叠 cue 查询、安全文本转换
+subtitle_layout.js        视频可见区域、全屏边界、字号与安全距离
+subtitle_overlay.js       圆角半透明字幕、同步与生命周期、原生 track 回退
 direct_translator.js      扩展内直连翻译与 partial VTT 回调（store 默认路径）
 ui.js                     页面 UI 门面（组装 ball / panel / popover / onboarding）
 ui_ball.js                右下角收纳球入口
@@ -281,16 +287,18 @@ export TRANSLATOR_PYTHON_BIN=/absolute/path/to/python
 - max paragraphs/chars
 - 后端双语模式
 - reasoning effort
+- fallback mode、repair concurrency、slow split threshold
 
 并发数、RPS、重试次数、timeout 这类只影响性能的参数不参与内容缓存键。
 
-扩展端只保留一个本地翻译字幕缓存。双语显示在前端渲染，因此切换双语显示不需要重新翻译。
+扩展页面侧保留当前翻译字幕缓存，缓存身份包含字幕内容哈希、来源和翻译配置；即使同一个字幕 URL 返回了新内容，也不会误用旧译文。后台直连缓存最多保留 10 条结果并受总字符数限制，后端调试路径则使用 `backend/.cache/` 磁盘缓存。双语显示在前端渲染，因此切换双语显示不需要重新翻译。
+
+翻译任务超时、页面切换或任务失效时会发送取消请求；取消只停止尚未开始的批次，并尝试中止当前网络请求或本地翻译子进程。已经提交给翻译服务的请求无法撤回，也不会写入完整翻译缓存。
 
 ## 说明
 
 - `page_probe.js` 会注入页面上下文，用于读取 Echo360/React 视频 UUID 线索，从而提高字幕和视频匹配的准确性。
 - 探针默认不抓取详细网络请求 body。
 - 如果录播存在独立开场片段，扩展会优先使用强 media-id 映射，其次使用 timeline/state 兜底匹配。
-- 仅 Transcript 面板、无播放器 CC 的课时依赖 `transcript-file` API（1.2.2）；这类页面没有 Echo360 原生 CC DOM 可注入，会被 `hasNativeCaptionCapability()` 判定为无能力并直接使用浏览器字幕轨。
+- 仅 Transcript 面板、无播放器 CC 的课时依赖 `transcript-file` API（1.2.2）；这类页面直接使用统一字幕覆盖层。
 - 增量预览的 partial VTT 由 `direct_translator.js` 每批产出并经 `background.js` job 轮询；`buildIncrementalPreviewVtt()` 负责把未译 cue 替换为占位文案。
-

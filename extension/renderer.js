@@ -1,18 +1,10 @@
 (() => {
   const ns = window.Echo360Translator;
-  const {
-    DEFAULT_SUBTITLE_LINE_HEIGHT,
-    DEFAULT_SUBTITLE_SIZE,
-    SAFARI_LINE_HEIGHT_MAP,
-    SAFARI_SIZE_MAP,
-    SIZE_MAP,
-    SUBTITLE_PENDING_LABEL,
-  } = ns.constants;
+  const { DEFAULT_SUBTITLE_SIZE, SUBTITLE_PENDING_LABEL, SUBTITLE_SIZE_OPTIONS } = ns.constants;
 
   let lastTranslatedTrack = null;
   let lastRenderedVtt = "";
   let lastOriginalVtt = "";
-  let styleEl = null;
   let lastRenderPrefs = {
     bilingual: false,
     size: DEFAULT_SUBTITLE_SIZE,
@@ -21,156 +13,34 @@
   };
   let lastRenderSourceMeta = null;
   let pendingMount = null;
-  let fullscreenListenerInstalled = false;
-  const nativeTrackStates = new Map();
-
-  function isSafari() {
-    return /^((?!chrome|android).)*safari/i.test(navigator.userAgent || "");
-  }
-
-  function isFullscreen() {
-    return !!(
-      document.fullscreenElement ||
-      document.webkitFullscreenElement ||
-      document.webkitCurrentFullScreenElement ||
-      ns.video.getAllVideos().some((video) => video.webkitDisplayingFullscreen)
-    );
-  }
-
-  function ensureFullscreenListener() {
-    if (fullscreenListenerInstalled) return;
-    fullscreenListenerInstalled = true;
-    ["fullscreenchange", "webkitfullscreenchange", "webkitbeginfullscreen", "webkitendfullscreen"].forEach((eventName) => {
-      document.addEventListener(eventName, () => {
-        applySubtitleSize(lastRenderPrefs.size || DEFAULT_SUBTITLE_SIZE);
-      }, true);
-    });
-  }
-
-  function resolveSubtitleLineHeight() {
-    if (!isSafari()) return DEFAULT_SUBTITLE_LINE_HEIGHT;
-    const mode = isFullscreen() ? "fullscreen" : "normal";
-    return SAFARI_LINE_HEIGHT_MAP[mode] || DEFAULT_SUBTITLE_LINE_HEIGHT;
-  }
 
   function applySubtitleSize(size) {
-    const normalizedSize = SIZE_MAP[size] ? size : DEFAULT_SUBTITLE_SIZE;
-    const pct = isSafari()
-      ? (SAFARI_SIZE_MAP[normalizedSize] || SAFARI_SIZE_MAP[DEFAULT_SUBTITLE_SIZE])
-      : (SIZE_MAP[normalizedSize] || SIZE_MAP[DEFAULT_SUBTITLE_SIZE]);
-    const lineHeight = resolveSubtitleLineHeight();
-    ensureFullscreenListener();
-    if (!styleEl) {
-      styleEl = document.createElement("style");
-      styleEl.id = "echo360-translator-style";
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = `
-      video::cue {
-        font-size: ${pct} !important;
-        line-height: ${lineHeight} !important;
-      }
-      video:fullscreen::cue {
-        font-size: ${pct} !important;
-        line-height: ${lineHeight} !important;
-      }
-      video:-webkit-full-screen::cue {
-        font-size: ${pct} !important;
-        line-height: ${lineHeight} !important;
-      }
-      video::-webkit-media-text-track-display {
-        font-size: ${pct} !important;
-        line-height: ${lineHeight} !important;
-      }
-      video:fullscreen::-webkit-media-text-track-display {
-        font-size: ${pct} !important;
-        line-height: ${lineHeight} !important;
-      }
-      video:-webkit-full-screen::-webkit-media-text-track-display {
-        font-size: ${pct} !important;
-        line-height: ${lineHeight} !important;
-      }
-    `;
+    const normalizedSize = SUBTITLE_SIZE_OPTIONS.includes(size) ? size : DEFAULT_SUBTITLE_SIZE;
+    ns.subtitleOverlay?.applySize(normalizedSize);
     ns.bilingualDomRenderer?.applySize(normalizedSize);
   }
 
-  function shouldShowTranslatedTrackForVideo(video, videos = ns.video.getAllVideos()) {
-    if (!video) return false;
-    const currentTime = Number(video.currentTime || 0);
-    if (!video.paused && !video.ended) return true;
-    if (currentTime > 0.25) return true;
-    if (videos.length > 1) return false;
-    return !videos.some((v) => {
-      if (v === video) return false;
-      const rect = v.getBoundingClientRect();
-      const area = Math.max(0, rect.width) * Math.max(0, rect.height);
-      const visible = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && area > 10_000;
-      return visible && !v.paused && !v.ended;
-    });
-  }
-
-  function pickActiveTranslatedTrack() {
-    const trackEls = ns.video.querySelectorAllDeep('track[data-echo360-translated="1"], track[label*="翻译字幕"]');
-    if (trackEls.length === 0) return null;
-    const videos = ns.video.getAllVideos();
-    let best = null;
-    for (const el of trackEls) {
-      const t = el.track;
-      if (!t) continue;
-      const v = videos.find((x) => x.contains(el));
-      if (!v) continue;
-      if (!shouldShowTranslatedTrackForVideo(v, videos)) continue;
-      const rect = v.getBoundingClientRect();
-      const area = Math.max(0, rect.width) * Math.max(0, rect.height);
-      const visible = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0;
-      const playingBoost = (!v.paused && !v.ended) ? 1_000_000 : 0;
-      const progressedBoost = Number(v.currentTime || 0) > 0 ? 200_000 : 0;
-      const score = playingBoost + progressedBoost + (visible ? 50_000 : 0) + area;
-      if (!best || score > best.score) best = { track: t, score };
-    }
-    return best?.track || null;
-  }
-
   function applySubtitleVisibility(enabled) {
+    if (ns.subtitleOverlay?.isMounted()) {
+      ns.subtitleOverlay.setVisible(enabled);
+      return;
+    }
     if (ns.bilingualDomRenderer?.isMounted()) {
       ns.bilingualDomRenderer.setVisible(enabled);
       return;
     }
-    if (enabled) {
-      ensureTrackOnPrimaryVideo();
-    }
-    const videos = ns.video.getAllVideos();
-    if (videos.length === 0) return;
-    let activeTextTrack = pickActiveTranslatedTrack() || lastTranslatedTrack?.track || null;
-    if (!activeTextTrack) {
-      const translatedEls = ns.video.querySelectorAllDeep('track[data-echo360-translated="1"], track[label*="翻译字幕"]');
-      const latest = translatedEls[translatedEls.length - 1];
-      const latestVideo = latest ? videos.find((x) => x.contains(latest)) : null;
-      activeTextTrack = latest && shouldShowTranslatedTrackForVideo(latestVideo, videos) ? latest.track : null;
-    }
-    for (const video of videos) {
-      let hasNonTranslatedShowing = false;
-      const nonTranslatedCandidates = [];
-      for (const t of video.textTracks) {
-        const isTranslatedTrack = (t.label || "").includes("翻译");
-        if (enabled) {
-          if (isTranslatedTrack) {
-            t.mode = activeTextTrack && t === activeTextTrack ? "showing" : "disabled";
-          }
-        } else if (isTranslatedTrack) {
-          t.mode = "disabled";
-        } else {
-          if (t.mode === "showing") hasNonTranslatedShowing = true;
-          nonTranslatedCandidates.push(t);
-        }
-      }
-      if (!enabled && !hasNonTranslatedShowing && nonTranslatedCandidates.length > 0) {
-        nonTranslatedCandidates[0].mode = "showing";
-      }
-    }
+    if (enabled) ensureTrackOnPrimaryVideo();
   }
 
   function ensureTrackOnPrimaryVideo() {
+    if (ns.subtitleOverlay?.getVideo()) {
+      const target = ns.sourceFinder.pickBestMountVideoByVtt(lastOriginalVtt, lastRenderSourceMeta);
+      if (target === ns.subtitleOverlay.getVideo() && target.isConnected) {
+        ns.subtitleOverlay.refresh();
+        return;
+      }
+      ns.subtitleOverlay.unmount();
+    }
     if (ns.bilingualDomRenderer?.isMounted()) {
       ns.bilingualDomRenderer.ensureMounted();
       return;
@@ -196,7 +66,6 @@
       }
     }
     if (!lastRenderedVtt || !lastOriginalVtt) return;
-    if (hasRenderedTranslatedTrack()) return;
     renderTranslatedTrack(
       lastRenderedVtt,
       lastOriginalVtt,
@@ -210,6 +79,7 @@
   }
 
   function deactivateTranslatedRenderers() {
+    ns.subtitleOverlay?.unmount();
     ns.bilingualDomRenderer?.unmount();
     for (const video of ns.video.getAllVideos()) {
       for (const track of video.textTracks) {
@@ -222,45 +92,15 @@
   function cleanupTranslatedTracks() {
     deactivateTranslatedRenderers();
     removeTranslatedTrackElements();
+    pendingMount = null;
+    lastRenderedVtt = "";
+    lastOriginalVtt = "";
+    lastRenderSourceMeta = null;
   }
 
   function removeTranslatedTrackElements() {
     const tracks = ns.video.querySelectorAllDeep('track[data-echo360-translated="1"], track[label*="翻译字幕"]');
     tracks.forEach((track) => track.remove());
-    for (const state of nativeTrackStates.values()) {
-      if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
-    }
-    nativeTrackStates.clear();
-  }
-
-  function hasRenderedTranslatedTrack() {
-    if (ns.bilingualDomRenderer?.isMounted()) return true;
-    return ns.video
-      .querySelectorAllDeep('track[data-echo360-translated="1"], track[label*="翻译字幕"]')
-      .some((track) => track.track?.mode === "showing");
-  }
-
-  function revokeWhenUnused(track, objectUrl) {
-    if (!objectUrl) return;
-    let revoked = false;
-    const revoke = () => {
-      if (revoked) return;
-      revoked = true;
-      URL.revokeObjectURL(objectUrl);
-    };
-    track.addEventListener("load", revoke, { once: true });
-    setTimeout(revoke, 10_000);
-  }
-
-  function getOrCreateNativeTrack(video) {
-    let state = nativeTrackStates.get(video);
-    if (state?.track?.isConnected && video.contains(state.track)) return state;
-
-    const existing = video.querySelector('track[data-echo360-translated="1"], track[label*="翻译字幕"]');
-    const track = existing || document.createElement("track");
-    state = { track, payload: "", objectUrl: "" };
-    nativeTrackStates.set(video, state);
-    return state;
   }
 
   function renderTranslatedTrack(
@@ -277,11 +117,10 @@
     // Native CC mode forces bilingual=true/reverseOrder=false on its `bilingual`/
     // `reverseOrder` params (it only ever injects one translated line, so
     // those controls are disabled while native CC injection is active) - that
-    // forced pair must never leak into a fallback to the browser <track>
-    // renderer, which has its own independent, user-chosen preference. Callers
+    // forced pair must never leak into a fallback to the unified overlay,
+    // which has its own independent, user-chosen preference. Callers
     // pass that real preference through renderOptions; fall back to
-    // bilingual/reverseOrder as-is only for callers that don't (so browser-
-    // track-only calls are unaffected).
+    // bilingual/reverseOrder as-is only for callers that don't provide it.
     const fallbackBilingual = renderOptions.browserBilingual ?? bilingual;
     const fallbackReverseOrder = renderOptions.browserReverseOrder ?? reverseOrder;
     const resolvedSourceMeta = sourceMeta || ns.sourceFinder.buildSourceMeta("", originalVtt);
@@ -309,15 +148,6 @@
         placeholder: renderOptions.pendingLabel || SUBTITLE_PENDING_LABEL,
       });
     }
-    const rawPayload = bilingual
-      ? ns.subtitleStrategy.buildBilingualVtt({
-        translatedVtt: normalizedTranslated,
-        originalVtt,
-        reverseOrder,
-        size,
-      })
-      : normalizedTranslated;
-    const payload = ns.vtt.applyCueBottom(rawPayload, size);
     lastRenderedVtt = normalizedTranslated;
     lastOriginalVtt = originalVtt;
     lastRenderPrefs = {
@@ -331,7 +161,7 @@
     lastRenderSourceMeta = resolvedSourceMeta;
 
     const nativeDomMode = bilingual && !useNativeSubtitles;
-    if (!incremental) {
+    if (!incremental && !(ns.subtitleOverlay?.isMounted() && !nativeDomMode)) {
       deactivateTranslatedRenderers();
     } else if (ns.bilingualDomRenderer?.isMounted() && !nativeDomMode) {
       ns.bilingualDomRenderer.unmount();
@@ -358,13 +188,11 @@
         size,
         reverseOrder,
         onNoCaptionCapability: () => {
-          // Fires once, mid-playback, if the per-cue grace period expires
-          // and this lesson turns out to have no native CC at all. Re-render
-          // as a browser <track> for the rest of this session without
-          // touching the saved preference — a different lesson may still
-          // have native CC, so native CC should still be tried again there.
-          console.info("[echo360-translator] no Echo360 native CC on this video; falling back to browser subtitle track");
-          ns.ui?.setStatusText("此课程无 Echo360 原生字幕位，已自动切换为浏览器字幕");
+          // Fires once, mid-playback, if the per-cue grace period expires and
+          // this lesson turns out to have no native CC at all. Re-render as the
+          // unified overlay without touching the saved preference.
+          console.info("[echo360-translator] no Echo360 native CC on this video; falling back to unified overlay");
+          ns.ui?.setStatusText("此课程无 Echo360 原生字幕位，已自动切换为统一字幕");
           renderTranslatedTrack(translatedVtt, originalVtt, fallbackBilingual, size, fallbackReverseOrder, resolvedSourceMeta, true, renderOptions);
         },
       });
@@ -373,63 +201,20 @@
         return true;
       }
       // mount() refused synchronously — most commonly because the
-      // capability pre-check already found no native CC track for this
-      // video. Fall back to the browser <track> renderer immediately
-      // instead of leaving the user with no subtitles at all.
+      // capability pre-check already found no native CC track for this video.
+      // Fall back to the unified overlay immediately.
       return renderTranslatedTrack(translatedVtt, originalVtt, fallbackBilingual, size, fallbackReverseOrder, resolvedSourceMeta, true, renderOptions);
     }
-    const nativeState = getOrCreateNativeTrack(video);
-    const payloadChanged = nativeState.payload !== payload || !nativeState.track.getAttribute("src");
-    if (payloadChanged && nativeState.track.isConnected && !incremental) {
-      nativeState.track.remove();
-      nativeState.track = document.createElement("track");
+    if (ns.subtitleOverlay) {
+      if (!ns.subtitleOverlay.isMounted()) removeTranslatedTrackElements();
+      const mounted = ns.subtitleOverlay.mount({ video, translatedVtt: normalizedTranslated, originalVtt, bilingual, size, reverseOrder });
+      if (mounted) {
+        pendingMount = null;
+        lastTranslatedTrack = { mode: "overlay" };
+      }
+      return mounted;
     }
-    const track = nativeState.track;
-    track.label = bilingual ? "翻译字幕 (双语)" : "翻译字幕";
-    track.srclang = "zh";
-    track.kind = "subtitles";
-    track.setAttribute("data-echo360-translated", "1");
-    if (resolvedSourceMeta.sourceId) track.setAttribute("data-echo360-source-id", resolvedSourceMeta.sourceId);
-    if (resolvedSourceMeta.mediaId) track.setAttribute("data-echo360-media-id", resolvedSourceMeta.mediaId);
-    if (resolvedSourceMeta.mapSource) track.setAttribute("data-echo360-map-source", resolvedSourceMeta.mapSource);
-    track.setAttribute("data-echo360-source-max-end", String(Math.round(resolvedSourceMeta.stats?.maxEnd || 0)));
-    if (nativeState.payload !== payload || !track.getAttribute("src")) {
-      const previousObjectUrl = nativeState.objectUrl;
-      const blob = new Blob(["\ufeff", payload], { type: "text/vtt;charset=utf-8" });
-      const objectUrl = URL.createObjectURL(blob);
-      nativeState.payload = payload;
-      nativeState.objectUrl = objectUrl;
-      track.src = objectUrl;
-      revokeWhenUnused(track, previousObjectUrl);
-    }
-    if (!track.isConnected || !video.contains(track)) {
-      track.default = true;
-      video.appendChild(track);
-    }
-    if (!incremental) {
-      const mountedVideoHintIds = Array.from(ns.video.getVideoHintMediaIds(video));
-      console.log("[echo360-translator] mounted translated track:", {
-        sourceId: resolvedSourceMeta.sourceId,
-        mediaId: resolvedSourceMeta.mediaId,
-        mapSource: resolvedSourceMeta.mapSource || "",
-        sourceMaxEnd: Math.round(resolvedSourceMeta.stats?.maxEnd || 0),
-        videoDuration: Math.round(Number(video.duration || 0)),
-        videoCurrentTime: Number(video.currentTime || 0).toFixed(2),
-        videoHintMatch: resolvedSourceMeta.mediaId ? mountedVideoHintIds.includes(resolvedSourceMeta.mediaId) : false,
-        videoHintIds: mountedVideoHintIds.slice(0, 12),
-      });
-    }
-    lastTranslatedTrack = track;
-    if (track.track) track.track.mode = "showing";
-    setTimeout(() => {
-      if (lastTranslatedTrack !== track || ns.bilingualDomRenderer?.isMounted()) return;
-      ns.storage.getPrefs().then((prefs) => {
-        if (lastTranslatedTrack !== track || !prefs.useNativeSubtitles) return;
-        if (track.track) track.track.mode = prefs.enabled === false ? "disabled" : "showing";
-        applySubtitleVisibility(prefs.enabled !== false);
-      });
-    }, 0);
-    return true;
+    return false;
   }
 
   function getRenderState() {
@@ -442,18 +227,12 @@
     };
   }
 
-  function setLastTranslatedTrack(track) {
-    lastTranslatedTrack = track || null;
-  }
-
   ns.renderer = {
     applySubtitleSize,
     applySubtitleVisibility,
     ensureTrackOnPrimaryVideo,
     cleanupTranslatedTracks,
-    hasRenderedTranslatedTrack,
     renderTranslatedTrack,
     getRenderState,
-    setLastTranslatedTrack,
   };
 })();

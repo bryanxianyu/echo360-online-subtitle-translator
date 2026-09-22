@@ -1,6 +1,27 @@
 (() => {
   const ns = window.Echo360Translator;
 
+  const CACHE_KEY_VERSION = "v2";
+
+  function looksLikeVtt(text) {
+    const value = String(text || "").trim();
+    return /^WEBVTT(?:\s|$)/i.test(value) && /\d{2}:\d{2}:\d{2}[.,]\d{3}\s+-->\s+/.test(value);
+  }
+
+  function logSourceFailure(source, err) {
+    console.warn(`[echo360-translator] subtitle source failed (${source}):`, err?.message || String(err));
+  }
+
+  async function fetchTextWithTimeout(url, options = {}, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function resolveSourceVtt(initialVideo) {
     let vttText = "";
     let sourceId = "";
@@ -8,17 +29,30 @@
 
     const trackEl = ns.sourceFinder.findBestTrackElement(initialVideo);
     if (trackEl?.getAttribute("src")) {
-      const vttUrl = new URL(trackEl.getAttribute("src"), location.href).toString();
-      const resp = await fetch(vttUrl, { credentials: "include" });
-      if (!resp.ok) throw new Error(`拉取 VTT 失败: HTTP ${resp.status}`);
-      vttText = await resp.text();
-      sourceId = vttUrl;
-      sourceMeta = ns.sourceFinder.buildSourceMeta(sourceId, vttText);
+      try {
+        const vttUrl = new URL(trackEl.getAttribute("src"), location.href).toString();
+        const resp = await fetchTextWithTimeout(vttUrl, { credentials: "include" });
+        if (!resp.ok) throw new Error(`拉取 VTT 失败: HTTP ${resp.status}`);
+        const candidateText = await resp.text();
+        if (!looksLikeVtt(candidateText)) throw new Error("响应不是有效 VTT");
+        vttText = candidateText;
+        sourceId = vttUrl;
+        sourceMeta = ns.sourceFinder.buildSourceMeta(sourceId, vttText);
+      } catch (err) {
+        logSourceFailure("track URL", err);
+      }
     }
 
     if (!vttText) {
-      vttText = await ns.sourceFinder.exportVttFromTextTracks(initialVideo, 8000);
-      if (vttText) sourceMeta = ns.sourceFinder.buildSourceMeta("", vttText);
+      try {
+        const candidateText = await ns.sourceFinder.exportVttFromTextTracks(initialVideo, 8000);
+        if (looksLikeVtt(candidateText)) {
+          vttText = candidateText;
+          sourceMeta = ns.sourceFinder.buildSourceMeta("", vttText);
+        }
+      } catch (err) {
+        logSourceFailure("TextTrack", err);
+      }
     }
 
     if (!vttText) {
@@ -30,20 +64,28 @@
         // player exposes no native CC track at all (only a transcript side
         // panel), since it doesn't depend on spotting a "vtt"/"caption"-looking
         // network request.
-        const transcriptCand = await ns.sourceFinder.fetchTranscriptFileVtt(currentVideo);
-        if (transcriptCand.text) {
-          vttText = transcriptCand.text;
-          sourceId = transcriptCand.sourceId;
-          sourceMeta = transcriptCand.sourceMeta;
-          break;
+        try {
+          const transcriptCand = await ns.sourceFinder.fetchTranscriptFileVtt(currentVideo);
+          if (looksLikeVtt(transcriptCand.text)) {
+            vttText = transcriptCand.text;
+            sourceId = transcriptCand.sourceId;
+            sourceMeta = transcriptCand.sourceMeta;
+            break;
+          }
+        } catch (err) {
+          logSourceFailure("transcript-file API", err);
         }
 
-        const cand = await ns.sourceFinder.fetchBestVttFromCandidates(currentVideo);
-        if (cand.text) {
-          vttText = cand.text;
-          sourceId = cand.sourceId;
-          sourceMeta = cand.sourceMeta || ns.sourceFinder.buildSourceMeta(sourceId, vttText);
-          break;
+        try {
+          const cand = await ns.sourceFinder.fetchBestVttFromCandidates(currentVideo);
+          if (looksLikeVtt(cand.text)) {
+            vttText = cand.text;
+            sourceId = cand.sourceId;
+            sourceMeta = cand.sourceMeta || ns.sourceFinder.buildSourceMeta(sourceId, vttText);
+            break;
+          }
+        } catch (err) {
+          logSourceFailure("network candidates", err);
         }
         await new Promise((r) => setTimeout(r, 500));
       }
@@ -94,6 +136,7 @@
       return await ns.backendClient.waitJob(backendUrl, create.job_id, {
         isActive: options.isActive || (() => true),
         onProgress: options.onProgress || (() => {}),
+        onCancel: () => ns.backendClient.proxyRequest(backendUrl, `/translate-async/${create.job_id}`, "DELETE").catch(() => {}),
       });
     } catch (asyncErr) {
       const msg = String(asyncErr?.message || asyncErr || "");
@@ -109,6 +152,7 @@
       isActive: options.isActive || (() => true),
       onProgress: options.onProgress || (() => {}),
       onPartialVtt: options.onPartialVtt || (() => {}),
+      onCancel: () => ns.backendClient.cancelDirectTranslateJob(create.job_id).catch(() => {}),
     });
   }
 
@@ -121,12 +165,13 @@
 
   async function buildCacheKey(cfg, sourceId, vttText) {
     const vttHash = await ns.storage.sha256Text(vttText);
-    const sourceKey = sourceId || `${location.href}#${vttHash}`;
+    const sourceKey = sourceId || location.href;
     const configSig = ns.storage.buildConfigSignature(cfg);
     return {
       sourceKey,
       configSig,
-      cacheKey: `${sourceKey}::${configSig}`,
+      vttHash,
+      cacheKey: `${CACHE_KEY_VERSION}::${sourceKey}::${vttHash}::${configSig}`,
     };
   }
 

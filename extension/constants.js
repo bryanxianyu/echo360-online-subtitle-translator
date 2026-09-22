@@ -39,11 +39,7 @@
     SUBTITLE_PENDING_LABEL: "正在翻译中...",
     SUBTITLE_FAILURE_LABEL: "[翻译失败]",
     DEFAULT_SUBTITLE_SIZE: "medium",
-    SIZE_MAP: { small: "62%", medium: "70%", large: "78%" },
-    SAFARI_SIZE_MAP: { small: "94%", medium: "110%", large: "128%" },
-    DEFAULT_SUBTITLE_LINE_HEIGHT: "1.3",
-    SAFARI_LINE_HEIGHT_MAP: { normal: "1.45", fullscreen: "1.45" },
-    CUE_LINE_MAP: { small: "97.2%", medium: "97.2%", large: "97.2%" },
+    SUBTITLE_SIZE_OPTIONS: ["small", "medium", "large"],
   };
 
   ns.state = ns.state || {

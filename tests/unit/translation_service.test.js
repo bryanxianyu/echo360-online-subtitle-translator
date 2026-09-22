@@ -54,6 +54,7 @@ beforeEach(() => {
   sourceFinderMock.fetchBestVttFromCandidates.mockResolvedValue({ text: "", sourceId: "", strongMapped: false, sourceMeta: null });
   sourceFinderMock.collectCandidateSubtitleUrls.mockReturnValue([]);
   videoMock.getPrimaryVideo.mockReturnValue(null);
+  vi.unstubAllGlobals();
 });
 
 describe("resolveSourceVtt", () => {
@@ -84,6 +85,34 @@ describe("resolveSourceVtt", () => {
 
     expect(result.vttText).toContain("Hi");
     expect(sourceFinderMock.fetchTranscriptFileVtt).toHaveBeenCalled();
+  });
+
+  it("continues to TextTrack and transcript fallbacks when the track URL fails", async () => {
+    const track = document.createElement("track");
+    track.setAttribute("src", "/captions.vtt");
+    sourceFinderMock.findBestTrackElement.mockReturnValue(track);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 403 })));
+    sourceFinderMock.exportVttFromTextTracks.mockResolvedValue("WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nFrom text track\n");
+
+    const result = await svc.resolveSourceVtt({});
+
+    expect(result.vttText).toContain("From text track");
+    expect(sourceFinderMock.exportVttFromTextTracks).toHaveBeenCalled();
+    expect(sourceFinderMock.fetchTranscriptFileVtt).not.toHaveBeenCalled();
+  });
+
+  it("continues after a rejected fallback source and uses the next source", async () => {
+    sourceFinderMock.fetchTranscriptFileVtt.mockRejectedValue(new Error("transcript unavailable"));
+    sourceFinderMock.fetchBestVttFromCandidates.mockResolvedValue({
+      text: "WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nFrom network\n",
+      sourceId: "https://example.com/network.vtt",
+      sourceMeta: { sourceId: "https://example.com/network.vtt", mediaId: "", mapSource: "video", stats: {} },
+    });
+
+    const result = await svc.resolveSourceVtt({});
+
+    expect(result.vttText).toContain("From network");
+    expect(sourceFinderMock.fetchBestVttFromCandidates).toHaveBeenCalled();
   });
 
   it("throws a clear error when no VTT source can be found by any strategy", async () => {
@@ -244,7 +273,12 @@ describe("translateWithConfig (store build)", () => {
       { isActive, onProgress }
     );
 
-    expect(backendClientMock.waitDirectJob).toHaveBeenCalledWith("job-99", { isActive, onProgress, onPartialVtt: expect.any(Function) });
+    expect(backendClientMock.waitDirectJob).toHaveBeenCalledWith("job-99", {
+      isActive,
+      onProgress,
+      onPartialVtt: expect.any(Function),
+      onCancel: expect.any(Function),
+    });
   });
 });
 
@@ -257,7 +291,8 @@ describe("buildCacheKey", () => {
     );
     expect(key.sourceKey).toBe("https://example.com/sub.vtt");
     expect(key.configSig).toBe("openai|gpt-5-nano");
-    expect(key.cacheKey).toBe("https://example.com/sub.vtt::openai|gpt-5-nano");
+    expect(key.vttHash).toBe("hash-14");
+    expect(key.cacheKey).toBe("v2::https://example.com/sub.vtt::hash-14::openai|gpt-5-nano");
   });
 
   it("falls back to page href + vtt hash when sourceId is empty", async () => {
@@ -267,7 +302,8 @@ describe("buildCacheKey", () => {
       writable: true,
     });
     const key = await svc.buildCacheKey({ provider: "google-web", model: "" }, "", "WEBVTT\n\n");
-    expect(key.sourceKey).toContain("https://echo360.org/lesson/abc#hash-");
+    expect(key.sourceKey).toBe("https://echo360.org/lesson/abc");
+    expect(key.cacheKey).toContain("::hash-8::google-web|");
     expect(key.cacheKey).toContain("::google-web|");
   });
 });

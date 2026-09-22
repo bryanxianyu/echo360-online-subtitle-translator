@@ -1,8 +1,6 @@
 (() => {
   const ns = window.Echo360Translator;
   const {
-    DEFAULT_SUBTITLE_SIZE,
-    CUE_LINE_MAP,
     SUBTITLE_PENDING_LABEL,
   } = ns.constants;
 
@@ -147,24 +145,6 @@
     return out.join("\n");
   }
 
-  function applyCueBottom(vttText, size) {
-    const linePos = CUE_LINE_MAP[size] || CUE_LINE_MAP[DEFAULT_SUBTITLE_SIZE];
-    return String(vttText || "")
-      .split("\n")
-      .map((line) => {
-        if (!line.includes("-->")) return line;
-        if (/\sline:[^\s]+/.test(line)) return line;
-        let out = line
-          .replace(/\sline:[^\s]+/g, "")
-          .replace(/\sposition:[^\s]+/g, "")
-          .replace(/\salign:[^\s]+/g, "")
-          .trimEnd();
-        out += ` line:${linePos} position:50% align:middle`;
-        return out;
-      })
-      .join("\n");
-  }
-
   function buildIncrementalPreviewVtt(partialVtt, originalVtt, options = {}) {
     const placeholder = options.placeholder || SUBTITLE_PENDING_LABEL;
     const trans = parseVttBlocks(partialVtt);
@@ -191,7 +171,6 @@
     isAlreadyBilingualVtt,
     normalizeBilingualOrderZhFirst,
     extractPrimaryTranslatedVtt,
-    applyCueBottom,
     buildIncrementalPreviewVtt,
   };
 })();
