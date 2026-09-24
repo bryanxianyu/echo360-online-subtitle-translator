@@ -164,10 +164,10 @@
       model: "",
       endpoint: "",
       target: "ZH",
-      maxParagraphs: 20,
-      maxChars: 2000,
-      concurrency: 16,
-      rps: 12,
+      maxParagraphs: 80,
+      maxChars: 4000,
+      concurrency: 8,
+      rps: 0,
       retries: 1,
       timeout: 10,
       reasoningEffort: "",
@@ -179,7 +179,7 @@
       deeplFormality: "",
     };
     const normalized = providerConfig ? providerConfig.migrate(config) : config;
-    if (providerConfig && Number(config.configVersion || 0) < 3) {
+    if (providerConfig && Number(config.configVersion || 0) < 5) {
       await extensionApi.storage.local.set({ [STORAGE_KEY]: normalized });
     }
     const resolved = providerConfig ? providerConfig.resolve(normalized) : normalized;

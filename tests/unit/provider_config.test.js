@@ -58,10 +58,10 @@ describe("provider_config migration and endpoint rules", () => {
 
   it("uses the tested DeepL profile for new settings and resets without changing saved values", () => {
     expect(config.resolve({ provider: "deepl" })).toMatchObject({
-      maxParagraphs: 80, maxChars: 12000, concurrency: 8, rps: 0, retries: 1, timeout: 30,
+      maxParagraphs: 80, maxChars: 4000, concurrency: 8, rps: 0, retries: 1, timeout: 30,
     });
     expect(config.defaultAdvancedPatch("deepl", true)).toMatchObject({
-      maxParagraphs: 80, maxChars: 12000, concurrency: 8, rps: 0, retries: 1, timeout: 30,
+      maxParagraphs: 80, maxChars: 4000, concurrency: 8, rps: 0, retries: 1, timeout: 30,
     });
     expect(config.resolve({ provider: "deepl", providerSettings: { deepl: {
       maxParagraphs: 24, maxChars: 4000, concurrency: 3, timeout: 15,

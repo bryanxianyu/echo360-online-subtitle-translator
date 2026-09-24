@@ -98,7 +98,7 @@
   async function loadConfig() {
     const stored = await api.storage.local.get(STORAGE_KEY);
     rawConfig = configApi.migrate(stored[STORAGE_KEY] || {});
-    if (Number(stored[STORAGE_KEY]?.configVersion || 0) < 3) {
+    if (Number(stored[STORAGE_KEY]?.configVersion || 0) < 5) {
       await api.storage.local.set({ [STORAGE_KEY]: rawConfig });
     }
     localApiKeys = { ...rawConfig.apiKeys };

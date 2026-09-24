@@ -4,7 +4,7 @@
 
 Chrome/Safari extension for loading translated subtitles on Echo360 recordings; the local FastAPI backend is kept as a development, fallback, and batch-processing path.
 
-Current extension version: **1.6.0**
+Current extension version: **1.6.1**
 
 ## What It Does
 
@@ -203,10 +203,10 @@ Test files live under `tests/unit/`; see `vitest.config.js` for configuration.
 - provider: `google-web`
 - model: empty for Google and DeepL; `gpt-6-luna` for OpenAI, `deepseek-flash` for DeepSeek, and `gemini-3.5-flash-lite` for Gemini
 - target: `ZH`
-- max_paragraphs: `6` for OpenAI/DeepSeek/Gemini, `20` for Google, `80` for DeepL
-- max_chars: `1200` for OpenAI/DeepSeek/Gemini, `2000` for Google, `12000` for DeepL
-- concurrency: `96` for OpenAI/DeepSeek/Gemini, `16` for Google, `8` for DeepL
-- rps: `0` for AI/API providers, `12` for Google
+- max_paragraphs: `6` for OpenAI/DeepSeek/Gemini, `80` for Google/DeepL
+- max_chars: `1200` for OpenAI/DeepSeek/Gemini, `4000` for Google/DeepL
+- concurrency: `96` for OpenAI/DeepSeek/Gemini, `8` for Google/DeepL
+- rps: `0` (unlimited)
 - retries: `1`
 - timeout: `10` seconds for OpenAI/DeepSeek/Gemini/Google, `30` seconds for DeepL
 - reasoning_effort: empty by default

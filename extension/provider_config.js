@@ -48,11 +48,11 @@
     },
   };
   const DEFAULTS = {
-    "google-web": { model: "", modelMode: "catalog", catalogModel: "", customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 20, maxChars: 2000, concurrency: 16, rps: 12, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
+    "google-web": { model: "", modelMode: "catalog", catalogModel: "", customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 80, maxChars: 4000, concurrency: 8, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
     openai: { model: MODEL_RECOMMENDATIONS.openai.modelId, modelMode: "catalog", catalogModel: MODEL_RECOMMENDATIONS.openai.modelId, customModel: null, endpoint: "", openaiApiProtocol: "responses", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
     deepseek: { model: MODEL_RECOMMENDATIONS.deepseek.modelId, modelMode: "catalog", catalogModel: MODEL_RECOMMENDATIONS.deepseek.modelId, customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
     gemini: { model: MODEL_RECOMMENDATIONS.gemini.modelId, modelMode: "catalog", catalogModel: MODEL_RECOMMENDATIONS.gemini.modelId, customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
-    deepl: { model: "", modelMode: "catalog", catalogModel: "", customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 80, maxChars: 12000, concurrency: 8, rps: 0, retries: 1, timeout: 30, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
+    deepl: { model: "", modelMode: "catalog", catalogModel: "", customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 80, maxChars: 4000, concurrency: 8, rps: 0, retries: 1, timeout: 30, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
   };
   const LEGACY_FIELDS = [
     "model", "endpoint", "openaiApiProtocol", "reasoningEffort", "deepseekThinkingMode", "deeplFormality",
@@ -74,6 +74,7 @@
 
   function migrate(rawConfig) {
     const raw = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
+    const previousConfigVersion = Number(raw.configVersion || 0);
     const provider = PROVIDERS.includes(raw.provider) ? raw.provider : "google-web";
     const apiKeys = { ...(raw.apiKeys && typeof raw.apiKeys === "object" ? raw.apiKeys : {}) };
     if (!Object.prototype.hasOwnProperty.call(apiKeys, provider) && raw.apiKey) apiKeys[provider] = raw.apiKey;
@@ -92,6 +93,15 @@
         || Object.prototype.hasOwnProperty.call(migrated, "model");
       const previousModel = hasSavedModel ? String(saved.model ?? migrated.model ?? "").trim() : "";
       const merged = { ...DEFAULTS[id], ...migrated, ...saved };
+      if (id === "google-web" && previousConfigVersion < 4) {
+        if (Number(merged.maxParagraphs) === 20) merged.maxParagraphs = DEFAULTS[id].maxParagraphs;
+        if (Number(merged.maxChars) === 2000) merged.maxChars = DEFAULTS[id].maxChars;
+        if (Number(merged.concurrency) === 16) merged.concurrency = DEFAULTS[id].concurrency;
+        if (Number(merged.rps) === 12) merged.rps = DEFAULTS[id].rps;
+      }
+      if (id === "deepl" && previousConfigVersion < 5 && Number(merged.maxChars) === 12000) {
+        merged.maxChars = DEFAULTS[id].maxChars;
+      }
       const validSavedMode = saved.modelMode === "custom" || saved.modelMode === "catalog";
       const mode = validSavedMode
         ? saved.modelMode
@@ -112,7 +122,7 @@
       const openaiApiProtocol = id !== "openai" ? "" : saved.openaiApiProtocol === "chat-completions" ? "chat-completions" : "responses";
       providerSettings[id] = { ...merged, openaiApiProtocol, modelMode: mode, catalogModel, customModel, model };
     }
-    return { ...raw, configVersion: 3, provider, apiKeys, providerSettings };
+    return { ...raw, configVersion: 5, provider, apiKeys, providerSettings };
   }
 
   function resolve(rawConfig, provider = rawConfig?.provider) {
@@ -149,7 +159,7 @@
     return {
       ...config,
       ...globalPatch,
-      configVersion: 3,
+      configVersion: 5,
       provider: id,
       providerSettings,
       apiKeys,

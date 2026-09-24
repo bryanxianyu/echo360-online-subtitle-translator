@@ -207,7 +207,7 @@ async function loadConfig() {
   const stored = await extensionApi.storage.local.get(STORAGE_KEY);
   const existing = stored[STORAGE_KEY] || {};
   rawConfig = providerConfig.migrate(existing);
-  if (Number(existing.configVersion || 0) < 3) await extensionApi.storage.local.set({ [STORAGE_KEY]: rawConfig });
+  if (Number(existing.configVersion || 0) < 5) await extensionApi.storage.local.set({ [STORAGE_KEY]: rawConfig });
   localApiKeys = { ...rawConfig.apiKeys };
   localProviderSettings = { ...rawConfig.providerSettings };
   activeProvider = rawConfig.provider;
