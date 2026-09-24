@@ -56,6 +56,21 @@ describe("provider_config migration and endpoint rules", () => {
     expect(config.DEFAULTS.gemini.model).toBe("gemini-3.5-flash-lite");
   });
 
+  it("uses the tested DeepL profile for new settings and resets without changing saved values", () => {
+    expect(config.resolve({ provider: "deepl" })).toMatchObject({
+      maxParagraphs: 80, maxChars: 12000, concurrency: 8, rps: 0, retries: 1, timeout: 30,
+    });
+    expect(config.defaultAdvancedPatch("deepl", true)).toMatchObject({
+      maxParagraphs: 80, maxChars: 12000, concurrency: 8, rps: 0, retries: 1, timeout: 30,
+    });
+    expect(config.resolve({ provider: "deepl", providerSettings: { deepl: {
+      maxParagraphs: 24, maxChars: 4000, concurrency: 3, timeout: 15,
+    } } })).toMatchObject({ maxParagraphs: 24, maxChars: 4000, concurrency: 3, timeout: 15 });
+    expect(config.resolve({ provider: "openai" })).toMatchObject({
+      maxParagraphs: 6, maxChars: 1200, concurrency: 96, timeout: 10,
+    });
+  });
+
   it("centralizes default endpoint inputs and advances only the requested reset fields", () => {
     expect(config.DEFAULT_ENDPOINTS).toMatchObject({
       openai: "https://api.openai.com/v1",

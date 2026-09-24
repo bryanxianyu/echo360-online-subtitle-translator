@@ -212,12 +212,12 @@ npm run test:coverage
 - provider: `google-web`
 - model: Google 与 DeepL 为空；OpenAI 为 `gpt-6-luna`，DeepSeek 为 `deepseek-flash`，Gemini 为 `gemini-3.5-flash-lite`
 - target: `ZH`
-- max_paragraphs: AI/API 服务为 `6`，Google 为 `20`
-- max_chars: AI/API 服务为 `1200`，Google 为 `2000`
-- concurrency: AI/API 服务为 `96`，Google 为 `16`
+- max_paragraphs: OpenAI/DeepSeek/Gemini 为 `6`，Google 为 `20`，DeepL 为 `80`
+- max_chars: OpenAI/DeepSeek/Gemini 为 `1200`，Google 为 `2000`，DeepL 为 `12000`
+- concurrency: OpenAI/DeepSeek/Gemini 为 `96`，Google 为 `16`，DeepL 为 `8`
 - rps: AI/API 服务为 `0`，Google 为 `12`
 - retries: `1`
-- timeout: `10`
+- timeout: OpenAI/DeepSeek/Gemini/Google 为 `10` 秒，DeepL 为 `30` 秒
 - reasoning_effort: 默认空
 - deepseek_thinking_mode: `disabled`
 
