@@ -16,7 +16,10 @@ describe("provider_config migration and endpoint rules", () => {
       model: "legacy-model",
       endpoint: "https://proxy.example/v1",
       concurrency: 7,
-      providerSettings: { deepseek: { concurrency: 4 }, openai: { model: "openai-manual" } },
+      providerSettings: {
+        deepseek: { concurrency: 4 },
+        openai: { model: "openai-manual", endpoint: "https://proxy.example/openai/v1", openaiApiProtocol: "chat-completions" },
+      },
       unrelated: { keep: true },
     };
     const once = config.migrate(legacy);
@@ -24,7 +27,10 @@ describe("provider_config migration and endpoint rules", () => {
     expect(twice).toEqual(once);
     expect(once.apiKeys.deepseek).toBe("legacy-deepseek-key");
     expect(once.providerSettings.deepseek).toMatchObject({ model: "legacy-model", endpoint: "https://proxy.example/v1", concurrency: 4 });
-    expect(once.providerSettings.openai).toMatchObject({ model: "openai-manual", endpoint: "", concurrency: 96 });
+    expect(once.providerSettings.openai).toMatchObject({
+      model: "openai-manual", endpoint: "https://proxy.example/openai/v1/chat/completions", concurrency: 96,
+    });
+    expect(once.providerSettings.openai).not.toHaveProperty("openaiApiProtocol");
     expect(once.unrelated).toEqual({ keep: true });
   });
 
@@ -78,8 +84,8 @@ describe("provider_config migration and endpoint rules", () => {
       gemini: "https://generativelanguage.googleapis.com/v1beta",
       deepl: "https://api-free.deepl.com/v2/translate",
     });
-    expect(config.defaultAdvancedPatch("openai", false)).toEqual({ endpoint: "", openaiApiProtocol: "responses", reasoningEffort: "" });
-    expect(config.defaultAdvancedPatch("openai", true)).toMatchObject({ endpoint: "", openaiApiProtocol: "responses", reasoningEffort: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0 });
+    expect(config.defaultAdvancedPatch("openai", false)).toEqual({ endpoint: "", reasoningEffort: "" });
+    expect(config.defaultAdvancedPatch("openai", true)).toMatchObject({ endpoint: "", reasoningEffort: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0 });
     expect(config.defaultAdvancedPatch("deepseek", false)).toEqual({ endpoint: "", deepseekThinkingMode: "disabled" });
   });
 
@@ -97,12 +103,16 @@ describe("provider_config migration and endpoint rules", () => {
     expect(config.endpointFor(provider, "", resource, model)).toBe(expected);
   });
 
-  it("normalizes an OpenAI-compatible chat completions endpoint according to the selected protocol", () => {
+  it("infers the OpenAI-compatible protocol from a full endpoint path", () => {
     const endpoint = "https://proxy.example/v1/chat/completions";
-    expect(config.endpointFor("openai", endpoint, "translate", "", "responses"))
+    expect(config.openaiProtocolForEndpoint(endpoint)).toBe("chat-completions");
+    expect(config.endpointFor("openai", endpoint, "translate")).toBe(endpoint);
+    expect(config.endpointFor("openai", "https://proxy.example/v1", "translate"))
       .toBe("https://proxy.example/v1/responses");
-    expect(config.endpointFor("openai", endpoint, "translate", "", "chat-completions"))
-      .toBe(endpoint);
+    expect(config.endpointFor("openai", "https://proxy.example/v1/responses", "translate"))
+      .toBe("https://proxy.example/v1/responses");
+    expect(config.endpointFor("openai", endpoint, "models"))
+      .toBe("https://proxy.example/v1/models");
   });
 
   it("rejects a known endpoint path incompatible with DeepSeek", () => {

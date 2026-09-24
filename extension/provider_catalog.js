@@ -92,14 +92,15 @@
 
   // One policy for every catalog. Adapters supply evidence, never a whitelist
   // of allowed model IDs. Absent metadata means unknown, not incompatible.
-  function modelPolicy(provider, id, evidence, openaiApiProtocol = "responses") {
+  function modelPolicy(provider, id, evidence, endpoint = "") {
     const incompatible = (reason) => ({ eligibility: "incompatible", reason });
     const { inputs, outputs, endpoints, methods } = evidence;
     if ((inputs.length && !inputs.includes("text")) || (outputs.length && !outputs.includes("text"))) {
       return incompatible("服务声明的输入/输出类型不支持文本到文本翻译");
     }
+    const openaiProtocol = config.openaiProtocolForEndpoint(endpoint);
     const route = provider === "openai"
-      ? (openaiApiProtocol === "chat-completions" ? "chat/completions" : "responses")
+      ? (openaiProtocol === "chat-completions" ? "chat/completions" : "responses")
       : { deepseek: "chat/completions", gemini: "generatecontent" }[provider];
     if (route && endpoints.length && !endpoints.includes(route)) return incompatible("服务声明的接口与当前翻译协议不兼容");
     if (provider === "gemini" && methods.length && !methods.includes("generatecontent")) return incompatible("服务未声明 generateContent 支持");
@@ -115,7 +116,7 @@
       return incompatible("专用图像、视频或音频生成模型，不适用于字幕翻译");
     }
     if (provider === "openai" && /(^|\/)gpt-(?:audio(?:-|$)|4o(?:-mini)?-audio(?:-|$)|live(?:-|$))/i.test(id)) {
-      return incompatible(`此音频/实时模型不适用于当前 ${openaiApiProtocol === "chat-completions" ? "Chat Completions" : "Responses"} 翻译接口`);
+      return incompatible(`此音频/实时模型不适用于当前 ${openaiProtocol === "chat-completions" ? "Chat Completions" : "Responses"} 翻译接口`);
     }
     const hasEvidence = (inputs.includes("text") && outputs.includes("text"))
       || endpoints.includes(route) || (provider === "gemini" && methods.includes("generatecontent"));
@@ -136,7 +137,7 @@
       || a.id.localeCompare(b.id));
   }
 
-  function normalizeModels(provider, rows, openaiApiProtocol = "responses") {
+  function normalizeModels(provider, rows, endpoint = "") {
     const byId = new Map();
     for (const row of rows) {
       // Gemini's model resource name identifies the listed variant, while
@@ -160,19 +161,19 @@
       byId.set(id, {
         id,
         displayName: String(row.displayName || row.name || id).replace(/^models\//, "").slice(0, 160),
-        ...modelPolicy(provider, id, evidence, openaiApiProtocol),
+        ...modelPolicy(provider, id, evidence, endpoint),
         catalogCapabilities: evidence,
       });
     }
     return applyCuratedRecommendation(provider, [...byId.values()]);
   }
 
-  async function listModels(provider, endpoint, apiKey, signal, openaiApiProtocol = "responses") {
+  async function listModels(provider, endpoint, apiKey, signal) {
     if (!["openai", "deepseek", "gemini"].includes(provider)) return [];
     if (provider !== "gemini") {
       const data = await requestJson(config.endpointFor(provider, endpoint, "models"), provider, apiKey, signal);
       if (!Array.isArray(data?.data)) throw Object.assign(new Error("模型列表响应缺少 data 数组"), { category: "invalid_response" });
-      return normalizeModels(provider, data.data, openaiApiProtocol);
+      return normalizeModels(provider, data.data, endpoint);
     }
     const seenTokens = new Set();
     const rows = [];
@@ -191,7 +192,7 @@
       if (pageToken && seenTokens.has(pageToken)) throw Object.assign(new Error("Gemini 模型分页返回重复 token"), { category: "invalid_response" });
       if (pageToken) seenTokens.add(pageToken);
     } while (pageToken);
-    return normalizeModels(provider, rows, openaiApiProtocol);
+    return normalizeModels(provider, rows, endpoint);
   }
 
   async function cacheId(provider, endpoint, apiKey) {
@@ -202,15 +203,16 @@
         : config.endpointFor(provider, endpoint, "models");
     }
     catch (_) { /* Invalid drafts are never used for a request; hash their exact value without normalizing. */ }
-    const raw = new TextEncoder().encode(JSON.stringify([provider, effectiveEndpoint, apiKey || ""]));
+    const protocol = provider === "openai" ? config.openaiProtocolForEndpoint(endpoint) : "";
+    const raw = new TextEncoder().encode(JSON.stringify([provider, effectiveEndpoint, protocol, apiKey || ""]));
     const digest = await crypto.subtle.digest("SHA-256", raw);
     return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
-  async function readCache(id, provider, openaiApiProtocol = "responses") {
+  async function readCache(id, provider, endpoint = "") {
     const values = await root.Echo360ExtensionApi.storage.local.get(CACHE_KEY);
     const cached = values[CACHE_KEY]?.[id];
-    return cached ? { ...cached, models: normalizeModels(provider, Array.isArray(cached.models) ? cached.models : [], openaiApiProtocol) } : null;
+    return cached ? { ...cached, models: normalizeModels(provider, Array.isArray(cached.models) ? cached.models : [], endpoint) } : null;
   }
 
   async function writeCache(id, catalog) {
@@ -268,8 +270,7 @@
     const apiKey = config.KEYLESS_PROVIDERS.has(provider) ? "" : String(input.apiKey || "").trim();
     if (!config.KEYLESS_PROVIDERS.has(provider) && !apiKey) return { ok: false, error: { category: "invalid_key", message: "请先填写 API Key" } };
     const id = provider === "google-web" ? "" : await cacheId(provider, endpoint, apiKey);
-    const openaiApiProtocol = input.openaiApiProtocol || input.openai_api_protocol || "responses";
-    if (message.type === "provider-cache") return { ok: true, data: id ? await readCache(id, provider, openaiApiProtocol) : null };
+    if (message.type === "provider-cache") return { ok: true, data: id ? await readCache(id, provider, endpoint) : null };
 
     const requestId = String(message.requestId || "");
     if (!requestId) return { ok: false, error: { category: "invalid_configuration", message: "缺少诊断请求编号" } };
@@ -286,7 +287,7 @@
         let models;
         try {
           data = provider === "deepl" ? await requestJson(catalogUrl, provider, apiKey, controller.signal) : null;
-          models = data ? [] : await listModels(provider, endpoint, apiKey, controller.signal, openaiApiProtocol);
+          models = data ? [] : await listModels(provider, endpoint, apiKey, controller.signal);
         } catch (error) {
           if (error.httpStatus === 404) error.category = provider === "deepl" ? "invalid_configuration" : "discovery_unavailable";
           throw error;
@@ -300,7 +301,7 @@
       }
       const translationUrl = provider === "deepl"
         ? config.deeplEndpointFor(endpoint, "translate", apiKey)
-        : config.endpointFor(provider, endpoint, "translate", input.model || "", openaiApiProtocol);
+        : config.endpointFor(provider, endpoint, "translate", input.model || "");
       if (!await hasOriginPermission(translationUrl)) return { ok: false, error: { category: "host_permission_required", message: "请点击“点此验证服务”并允许访问此服务地址" } };
       const data = await root.Echo360DirectTranslator.probeTranslation({ ...input, provider, endpoint, api_key: apiKey, abortSignal: controller.signal });
       return { ok: true, data: { translation: data.translation, verifiedAt: Date.now(), execution: input.useLocalBackend ? "provider_direct" : "provider_direct" } };

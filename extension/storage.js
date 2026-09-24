@@ -179,7 +179,7 @@
       deeplFormality: "",
     };
     const normalized = providerConfig ? providerConfig.migrate(config) : config;
-    if (providerConfig && Number(config.configVersion || 0) < 5) {
+    if (providerConfig && Number(config.configVersion || 0) < 6) {
       await extensionApi.storage.local.set({ [STORAGE_KEY]: normalized });
     }
     const resolved = providerConfig ? providerConfig.resolve(normalized) : normalized;

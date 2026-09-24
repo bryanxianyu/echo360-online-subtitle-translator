@@ -3,7 +3,7 @@
   const PROVIDERS = ["google-web", "openai", "deepseek", "gemini", "deepl"];
   const KEYLESS_PROVIDERS = new Set(["google-web"]);
   const PROFILE_FIELDS = [
-    "model", "modelMode", "catalogModel", "customModel", "endpoint", "openaiApiProtocol", "reasoningEffort", "deepseekThinkingMode", "deeplFormality",
+    "model", "modelMode", "catalogModel", "customModel", "endpoint", "reasoningEffort", "deepseekThinkingMode", "deeplFormality",
     "maxParagraphs", "maxChars", "concurrency", "rps", "retries", "timeout",
     "fallbackMode", "repairConcurrency", "slowSplitThreshold",
   ];
@@ -20,7 +20,7 @@
   };
   const PROVIDER_ADVANCED_FIELDS = {
     "google-web": [],
-    openai: ["openaiApiProtocol", "reasoningEffort"],
+    openai: ["reasoningEffort"],
     deepseek: ["deepseekThinkingMode"],
     gemini: [],
     deepl: ["deeplFormality"],
@@ -49,17 +49,34 @@
   };
   const DEFAULTS = {
     "google-web": { model: "", modelMode: "catalog", catalogModel: "", customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 80, maxChars: 4000, concurrency: 8, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
-    openai: { model: MODEL_RECOMMENDATIONS.openai.modelId, modelMode: "catalog", catalogModel: MODEL_RECOMMENDATIONS.openai.modelId, customModel: null, endpoint: "", openaiApiProtocol: "responses", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
+    openai: { model: MODEL_RECOMMENDATIONS.openai.modelId, modelMode: "catalog", catalogModel: MODEL_RECOMMENDATIONS.openai.modelId, customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
     deepseek: { model: MODEL_RECOMMENDATIONS.deepseek.modelId, modelMode: "catalog", catalogModel: MODEL_RECOMMENDATIONS.deepseek.modelId, customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
     gemini: { model: MODEL_RECOMMENDATIONS.gemini.modelId, modelMode: "catalog", catalogModel: MODEL_RECOMMENDATIONS.gemini.modelId, customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 6, maxChars: 1200, concurrency: 96, rps: 0, retries: 1, timeout: 10, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
     deepl: { model: "", modelMode: "catalog", catalogModel: "", customModel: null, endpoint: "", reasoningEffort: "", deepseekThinkingMode: "disabled", deeplFormality: "", maxParagraphs: 80, maxChars: 4000, concurrency: 8, rps: 0, retries: 1, timeout: 30, fallbackMode: "immediate", repairConcurrency: 1, slowSplitThreshold: 0 },
   };
   const LEGACY_FIELDS = [
-    "model", "endpoint", "openaiApiProtocol", "reasoningEffort", "deepseekThinkingMode", "deeplFormality",
+    "model", "endpoint", "reasoningEffort", "deepseekThinkingMode", "deeplFormality",
     "maxParagraphs", "maxChars", "concurrency", "rps", "retries", "timeout",
     "fallbackMode", "repairConcurrency", "slowSplitThreshold",
   ];
   let configWriteTail = Promise.resolve();
+
+  function openaiEndpointForRoute(rawEndpoint = "", route = "responses") {
+    const base = safeEndpoint(rawEndpoint) || new URL(DEFAULT_ENDPOINTS.openai);
+    let path = base.pathname.replace(/\/+$/, "");
+    const endpointTail = /\/(?:v\d+(?:beta|alpha)?\/)?(?:responses|chat\/completions|models)$/i;
+    if (endpointTail.test(path)) {
+      const prefix = path.replace(endpointTail, "");
+      const version = path.match(/\/(v\d+(?:beta|alpha)?)\/(?:responses|models|chat\/completions)$/i)?.[1] || "";
+      path = `${prefix}${version ? `/${version}` : ""}/${route}`;
+    } else {
+      const hasApiVersion = /(?:^|\/)v\d+(?:beta|alpha)?(?:\/openai)?$/i.test(path)
+        || /(?:^|\/)openai\/v\d+(?:beta|alpha)?$/i.test(path);
+      path = `${path}${hasApiVersion ? "" : "/v1"}/${route}`;
+    }
+    base.pathname = path.replace(/\/{2,}/g, "/");
+    return base.toString();
+  }
 
   // Extension pages share an origin, so Web Locks serialize their read/merge/write
   // cycle. The local queue keeps test and older-browser fallbacks ordered too.
@@ -93,6 +110,13 @@
         || Object.prototype.hasOwnProperty.call(migrated, "model");
       const previousModel = hasSavedModel ? String(saved.model ?? migrated.model ?? "").trim() : "";
       const merged = { ...DEFAULTS[id], ...migrated, ...saved };
+      const previousOpenAiProtocol = id === "openai"
+        ? saved.openaiApiProtocol || (provider === "openai" ? raw.openaiApiProtocol : "")
+        : "";
+      if (id === "openai" && previousConfigVersion < 6 && previousOpenAiProtocol === "chat-completions") {
+        merged.endpoint = openaiEndpointForRoute(merged.endpoint, "chat/completions");
+      }
+      delete merged.openaiApiProtocol;
       if (id === "google-web" && previousConfigVersion < 4) {
         if (Number(merged.maxParagraphs) === 20) merged.maxParagraphs = DEFAULTS[id].maxParagraphs;
         if (Number(merged.maxChars) === 2000) merged.maxChars = DEFAULTS[id].maxChars;
@@ -119,10 +143,11 @@
         ? savedCustomModel === null ? null : String(savedCustomModel || "").trim()
         : mode === "custom" ? previousModel : null;
       const model = mode === "custom" ? customModel : catalogModel;
-      const openaiApiProtocol = id !== "openai" ? "" : saved.openaiApiProtocol === "chat-completions" ? "chat-completions" : "responses";
-      providerSettings[id] = { ...merged, openaiApiProtocol, modelMode: mode, catalogModel, customModel, model };
+      providerSettings[id] = { ...merged, modelMode: mode, catalogModel, customModel, model };
     }
-    return { ...raw, configVersion: 5, provider, apiKeys, providerSettings };
+    const normalized = { ...raw, configVersion: 6, provider, apiKeys, providerSettings };
+    delete normalized.openaiApiProtocol;
+    return normalized;
   }
 
   function resolve(rawConfig, provider = rawConfig?.provider) {
@@ -159,7 +184,7 @@
     return {
       ...config,
       ...globalPatch,
-      configVersion: 5,
+      configVersion: 6,
       provider: id,
       providerSettings,
       apiKeys,
@@ -203,7 +228,16 @@
     return url.toString();
   }
 
-  function endpointFor(provider, rawEndpoint = "", resource = "translate", model = "", openaiApiProtocol = "responses") {
+  function openaiProtocolForEndpoint(rawEndpoint = "") {
+    try {
+      const path = new URL(String(rawEndpoint || "").trim()).pathname.replace(/\/+$/, "");
+      return /\/chat\/completions$/i.test(path) ? "chat-completions" : "responses";
+    } catch (_) {
+      return "responses";
+    }
+  }
+
+  function endpointFor(provider, rawEndpoint = "", resource = "translate", model = "") {
     const custom = safeEndpoint(rawEndpoint);
     const defaultUrl = () => new URL(DEFAULT_ENDPOINTS[provider]);
     const suppliedPath = custom?.pathname.replace(/\/+$/, "") || "";
@@ -245,27 +279,25 @@
       return url.toString();
     }
     if (provider === "openai" || provider === "deepseek") {
+      if (provider === "openai") {
+        const protocol = openaiProtocolForEndpoint(rawEndpoint);
+        const route = resource === "models" ? "models" : protocol === "chat-completions" ? "chat/completions" : "responses";
+        return openaiEndpointForRoute(rawEndpoint, route);
+      }
       const base = custom || defaultUrl();
-      const isOpenAi = provider === "openai";
-      const route = isOpenAi && openaiApiProtocol !== "chat-completions" ? "responses" : "chat/completions";
-      const leaf = resource === "models" ? "models" : route;
+      const leaf = resource === "models" ? "models" : "chat/completions";
       let path = base.pathname.replace(/\/+$/, "");
       const endpointTail = /\/(?:v\d+(?:beta|alpha)?\/)?(?:responses|chat\/completions|models)$/i;
       if (endpointTail.test(path)) {
         const prefix = path.replace(endpointTail, "");
         const version = path.match(/\/(v\d+(?:beta|alpha)?)\/(?:responses|models|chat\/completions)$/i)?.[1] || "";
         path = `${prefix}${version ? `/${version}` : ""}/${leaf}`;
-      } else if (isOpenAi) {
-        const hasApiVersion = /(?:^|\/)v\d+(?:beta|alpha)?(?:\/openai)?$/i.test(path)
-          || /(?:^|\/)openai\/v\d+(?:beta|alpha)?$/i.test(path);
-        path = `${path}${hasApiVersion ? "" : "/v1"}/${leaf}`;
-      }
-      else path = `${path}/${leaf}`;
+      } else path = `${path}/${leaf}`;
       base.pathname = path.replace(/\/{2,}/g, "/");
       return base.toString();
     }
     throw new Error("不支持的翻译服务");
   }
 
-  root.Echo360ProviderConfig = { PROVIDERS, KEYLESS_PROVIDERS, PROFILE_FIELDS, PERFORMANCE_FIELDS, DEFAULTS, DEFAULT_ENDPOINTS, PROVIDER_ADVANCED_FIELDS, MODEL_RECOMMENDATIONS, migrate, resolve, saveActive, safeEndpoint, defaultAdvancedPatch, deeplEndpointFor, endpointFor, withConfigWriteLock };
+  root.Echo360ProviderConfig = { PROVIDERS, KEYLESS_PROVIDERS, PROFILE_FIELDS, PERFORMANCE_FIELDS, DEFAULTS, DEFAULT_ENDPOINTS, PROVIDER_ADVANCED_FIELDS, MODEL_RECOMMENDATIONS, migrate, resolve, saveActive, safeEndpoint, defaultAdvancedPatch, deeplEndpointFor, openaiProtocolForEndpoint, endpointFor, withConfigWriteLock };
 })();

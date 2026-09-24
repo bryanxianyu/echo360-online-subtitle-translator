@@ -206,18 +206,22 @@ def provider_defaults(provider: str) -> dict[str, int | str]:
     }
 
 
-def normalize_openai_compatible_endpoint(endpoint: str, provider: str, openai_api_protocol: str = "responses") -> str:
+def openai_protocol_for_endpoint(endpoint: str) -> str:
+    path = urlsplit((endpoint or "").strip()).path.rstrip("/")
+    return "chat-completions" if re.search(r"/chat/completions$", path, re.IGNORECASE) else "responses"
+
+
+def normalize_openai_compatible_endpoint(endpoint: str, provider: str) -> str:
     ep = (endpoint or "").strip()
     if not ep:
         if provider == "openai":
-            route = "chat/completions" if openai_api_protocol == "chat-completions" else "responses"
-            return f"https://api.openai.com/v1/{route}"
+            return "https://api.openai.com/v1/responses"
         return DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT
 
     parsed = urlsplit(ep)
     path = parsed.path.rstrip("/")
     if provider == "openai":
-        route = "chat/completions" if openai_api_protocol == "chat-completions" else "responses"
+        route = "chat/completions" if openai_protocol_for_endpoint(ep) == "chat-completions" else "responses"
         route_tail = re.compile(r"/(?:responses|chat/completions|models)$", re.IGNORECASE)
         if route_tail.search(path):
             path = route_tail.sub("", path)
@@ -625,12 +629,11 @@ def openai_translate_batch(
     strict_json_fallback: bool = True,
     request_timeout: float = 90.0,
     openai_reasoning_effort: str = "",
-    api_protocol: str = "responses",
 ) -> List[str]:
     if not (model or "").strip():
         raise ValueError("A model ID is required for provider=openai")
 
-    if api_protocol == "chat-completions":
+    if openai_protocol_for_endpoint(endpoint) == "chat-completions":
         return chat_completions_translate_batch(
             texts=texts,
             api_key=api_key,
@@ -851,7 +854,6 @@ def translate_lines_native(
     repair_concurrency: int = 1,
     no_thinking: bool | None = True,
     openai_reasoning_effort: str = "",
-    openai_api_protocol: str = "responses",
     deepl_formality: str = "",
 ) -> List[str]:
     provider_name = (provider or "deepl").strip().lower()
@@ -903,12 +905,11 @@ def translate_lines_native(
                 api_key=api_key,
                 target_lang=target_lang,
                 model=model,
-                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name, openai_api_protocol),
+                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name),
                 max_retries=max_retries,
                 strict_json_fallback=not fastpath_only_main,
                 request_timeout=request_timeout,
                 openai_reasoning_effort=openai_reasoning_effort,
-                api_protocol=openai_api_protocol,
             )
         if provider_name == "deepseek":
             return deepseek_translate_batch(
@@ -916,7 +917,7 @@ def translate_lines_native(
                 api_key=api_key,
                 target_lang=target_lang,
                 model=model,
-                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name, openai_api_protocol),
+                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name),
                 max_retries=max_retries,
                 strict_json_fallback=not fastpath_only_main,
                 request_timeout=request_timeout,
@@ -956,12 +957,11 @@ def translate_lines_native(
                 api_key=api_key,
                 target_lang=target_lang,
                 model=model,
-                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name, openai_api_protocol),
+                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name),
                 max_retries=max_retries,
                 strict_json_fallback=True,
                 request_timeout=request_timeout,
                 openai_reasoning_effort=openai_reasoning_effort,
-                api_protocol=openai_api_protocol,
             )
         if provider_name == "deepseek":
             return deepseek_translate_batch(
@@ -1237,7 +1237,7 @@ def main():
     ap.add_argument(
         "--endpoint",
         default="",
-        help="Provider endpoint (DeepL Free/Pro, OpenAI Responses, or Chat Completions endpoint)",
+        help="Provider endpoint; OpenAI uses /chat/completions when that full route is supplied, otherwise Responses",
     )
     ap.add_argument("--model", default="", help="Model name for openai/deepseek/gemini")
     ap.add_argument("--target", default="ZH", help="Target language code (e.g. ZH / ZH-HK / YUE / EN / JA)")
@@ -1257,7 +1257,6 @@ def main():
         choices=sorted(OPENAI_REASONING_EFFORT_CHOICES),
         help="Optional OpenAI reasoning effort; leave unset to omit the parameter",
     )
-    ap.add_argument("--openai-api-protocol", choices=["responses", "chat-completions"], default="responses", help="OpenAI-compatible API protocol")
     thinking_group = ap.add_mutually_exclusive_group()
     thinking_group.add_argument("--no-thinking", action="store_true", help="DeepSeek only: disable thinking mode")
     thinking_group.add_argument("--with-thinking", action="store_true", help="DeepSeek only: enable thinking mode")
@@ -1318,7 +1317,7 @@ def main():
     }:
         resolved_endpoint = str(defaults["endpoint"])
     if args.provider in {"openai", "deepseek"}:
-        resolved_endpoint = normalize_openai_compatible_endpoint(resolved_endpoint, args.provider, args.openai_api_protocol)
+        resolved_endpoint = normalize_openai_compatible_endpoint(resolved_endpoint, args.provider)
     if args.provider == "deepl":
         resolved_endpoint = normalize_deepl_endpoint(resolved_endpoint, args.key)
 
@@ -1369,7 +1368,6 @@ def main():
         repair_concurrency=max(1, int(args.repair_concurrency)),
         no_thinking=None if args.omit_thinking else (False if args.with_thinking else True),
         openai_reasoning_effort=args.openai_reasoning_effort,
-        openai_api_protocol=args.openai_api_protocol,
         deepl_formality=args.deepl_formality,
     )
 

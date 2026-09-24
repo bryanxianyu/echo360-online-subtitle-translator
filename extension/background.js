@@ -5,7 +5,7 @@ const buildConfig = globalThis.Echo360BuildConfig || {};
 const STORAGE_KEY = "echo360TranslatorConfig";
 const KEYLESS_PROVIDERS_BG = new Set(["google-web"]);
 const DIRECT_CACHE_KEY = "echo360DirectTranslateCache";
-const DIRECT_CACHE_VERSION = "v2";
+const DIRECT_CACHE_VERSION = "v3";
 const DIRECT_CACHE_MAX_ENTRIES = 10;
 const DIRECT_CACHE_MAX_CHARS = 5_000_000;
 const DIRECT_JOB_TTL_MS = 60 * 60 * 1000;
@@ -32,7 +32,6 @@ async function buildDirectCacheKey(payload) {
     max_chars: payload.max_chars || 0,
     bilingual: !!payload.bilingual,
     reasoning_effort: payload.reasoning_effort || "",
-    openai_api_protocol: payload.openai_api_protocol || "responses",
     deepseek_thinking_mode: payload.deepseek_thinking_mode || "",
     deepl_formality: payload.deepl_formality || "",
     fallback_mode: payload.fallback_mode || "immediate",

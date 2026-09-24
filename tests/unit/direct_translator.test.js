@@ -85,15 +85,14 @@ describe("single-request provider translation probe", () => {
     expect(request.reasoning).toBeUndefined();
   });
 
-  it("uses the selected Chat Completions route for OpenAI-compatible translation verification", async () => {
+  it("infers Chat Completions from an OpenAI-compatible endpoint path", async () => {
     const fetchMock = vi.fn().mockResolvedValue(providerJsonResponse({ choices: [{ message: { content: "这节课九点开始。" } }] }));
     vi.stubGlobal("fetch", fetchMock);
     await translator.probeTranslation({
       provider: "openai",
       api_key: "test-secret",
       model: "compatible-model",
-      endpoint: "https://proxy.example/v1",
-      openai_api_protocol: "chat-completions",
+      endpoint: "https://proxy.example/v1/chat/completions",
       target: "ZH",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);

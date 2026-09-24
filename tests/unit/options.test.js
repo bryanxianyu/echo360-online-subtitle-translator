@@ -8,7 +8,7 @@ function optionsDom(includePerformanceControls = false) {
   document.body.innerHTML = `
     <div id="status"></div><button id="retrySaveBtn" hidden></button><div id="providerHint"></div><div id="apiKeyHint"></div>
     <select id="provider"><option value="google-web">Google</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option><option value="gemini">Gemini</option><option value="deepl">DeepL</option></select>
-    <input id="apiKey"><input id="model"><input id="endpoint"><div id="endpointHint"></div><select id="openaiApiProtocol"><option value="responses">Responses</option><option value="chat-completions">Chat Completions</option></select><input id="modelSearch"><select id="modelOptions"></select><input id="showIncompatible" type="checkbox">
+    <input id="apiKey"><input id="model"><input id="endpoint"><div id="endpointHint"></div><input id="modelSearch"><select id="modelOptions"></select><input id="showIncompatible" type="checkbox">
     <select id="target"><option value="ZH">ZH</option><option value="JA">JA</option></select>
     <div id="catalogStatus"></div><div id="verificationStatus"></div><button id="refreshModels"></button><button id="verifyProvider"></button>
     <input id="useLocalBackend" type="checkbox"><div id="localBackendSection"><input id="backendUrl"></div>
@@ -64,22 +64,18 @@ describe("options configuration persistence", () => {
     expect(document.getElementById("saveBtn")).toBeNull();
     expect(document.getElementById("concurrency")).toBeNull();
     expect(document.getElementById("endpoint").placeholder).toBe("https://api.openai.com/v1");
-    expect(document.getElementById("openaiApiProtocol").value).toBe("responses");
     expect(document.getElementById("resetAdvancedBtn").disabled).toBe(false);
     document.getElementById("endpoint").value = "https://proxy.example/v1/chat/completions";
     document.getElementById("endpoint").dispatchEvent(new Event("input", { bubbles: true }));
     expect(document.getElementById("endpointHint").classList.contains("error")).toBe(false);
-    document.getElementById("openaiApiProtocol").value = "chat-completions";
-    document.getElementById("openaiApiProtocol").dispatchEvent(new Event("change", { bubbles: true }));
     document.getElementById("resetAdvancedBtn").click();
     expect(document.getElementById("endpoint").value).toBe("");
-    expect(document.getElementById("openaiApiProtocol").value).toBe("responses");
     expect(document.getElementById("reasoningEffort").value).toBe("");
     expect(document.getElementById("resetAdvancedBtn").disabled).toBe(true);
     expect(document.getElementById("resetAdvancedStatus").textContent).toContain("高级参数已恢复默认");
     await vi.waitFor(() => expect(data.echo360TranslatorConfig.providerSettings.openai.endpoint).toBe(""));
     const saved = data.echo360TranslatorConfig;
-    expect(saved.providerSettings.openai).toMatchObject({ model: "openai-manual", endpoint: "", openaiApiProtocol: "responses", reasoningEffort: "", concurrency: 37, rps: 2.5, maxParagraphs: 9, maxChars: 900, retries: 2, timeout: 27, fallbackMode: "after-repair", repairConcurrency: 3, slowSplitThreshold: 1.5 });
+    expect(saved.providerSettings.openai).toMatchObject({ model: "openai-manual", endpoint: "", reasoningEffort: "", concurrency: 37, rps: 2.5, maxParagraphs: 9, maxChars: 900, retries: 2, timeout: 27, fallbackMode: "after-repair", repairConcurrency: 3, slowSplitThreshold: 1.5 });
     expect(saved.apiKeys.openai).toBe("openai-key");
     expect(api.runtime.sendMessage.mock.calls.some(([message]) => ["provider-discover", "provider-verify"].includes(message.type))).toBe(false);
     expect(saved.providerSettings.deepseek).toMatchObject({ model: "deepseek-manual", endpoint: "https://proxy.example/deepseek/v1", concurrency: 81, rps: 0.5, maxParagraphs: 5, maxChars: 700, retries: 1, timeout: 19 });
@@ -202,7 +198,7 @@ describe("options configuration persistence", () => {
   it("auto-saves edits made during an in-flight write without reverting the newer value", async () => {
     optionsDom(false);
     const data = { echo360TranslatorConfig: {
-      configVersion: 3,
+      configVersion: 6,
       provider: "openai",
       apiKeys: { openai: "key" },
       providerSettings: { openai: { model: "gpt-6-luna", endpoint: "" } },
@@ -254,7 +250,7 @@ describe("options configuration persistence", () => {
   it("shows a retry action after an automatic save fails", async () => {
     optionsDom(false);
     const data = { echo360TranslatorConfig: {
-      configVersion: 3,
+      configVersion: 6,
       provider: "openai",
       apiKeys: { openai: "key" },
       providerSettings: { openai: { model: "gpt-6-luna", endpoint: "" } },

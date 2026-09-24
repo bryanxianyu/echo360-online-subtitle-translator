@@ -68,14 +68,14 @@ describe("provider_catalog", () => {
     expect(catalog.normalizeModels("gemini", [{ id: "new-model", supportedGenerationMethods: [] }])[0].eligibility).toBe("unknown");
   });
 
-  it("filters OpenAI endpoint capability against the selected API protocol", () => {
+  it("filters OpenAI endpoint capability using the protocol inferred from its endpoint", () => {
     const rows = [
       { id: "response-model", supported_endpoints: ["/v1/responses"] },
       { id: "chat-model", supported_endpoints: ["/v1/chat/completions"] },
       { id: "unknown-model" },
     ];
-    const responses = Object.fromEntries(catalog.normalizeModels("openai", rows).map((model) => [model.id, model.eligibility]));
-    const chat = Object.fromEntries(catalog.normalizeModels("openai", rows, "chat-completions").map((model) => [model.id, model.eligibility]));
+    const responses = Object.fromEntries(catalog.normalizeModels("openai", rows, "https://proxy.example/v1").map((model) => [model.id, model.eligibility]));
+    const chat = Object.fromEntries(catalog.normalizeModels("openai", rows, "https://proxy.example/v1/chat/completions").map((model) => [model.id, model.eligibility]));
     expect(responses).toEqual({ "chat-model": "incompatible", "response-model": "candidate", "unknown-model": "unknown" });
     expect(chat).toEqual({ "chat-model": "candidate", "response-model": "incompatible", "unknown-model": "unknown" });
   });

@@ -4,7 +4,7 @@
 
 Chrome/Safari extension for loading translated subtitles on Echo360 recordings; the local FastAPI backend is kept as a development, fallback, and batch-processing path.
 
-Current extension version: **1.6.1**
+Current extension version: **1.6.2**
 
 ## What It Does
 

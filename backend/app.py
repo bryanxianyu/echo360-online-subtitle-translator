@@ -23,7 +23,7 @@ DEFAULT_TRANSLATOR_SCRIPT = Path(__file__).resolve().parent.parent / "translator
 TRANSLATOR_SCRIPT = Path(os.getenv("TRANSLATOR_SCRIPT", str(DEFAULT_TRANSLATOR_SCRIPT)))
 JOB_TTL_SECONDS = 60 * 60
 JOB_MAX_COUNT = 100
-CACHE_KEY_VERSION = "v2"
+CACHE_KEY_VERSION = "v3"
 KEYLESS_PROVIDERS = {"google-web"}
 class TranslateRequest(BaseModel):
     vtt_text: str = Field(..., min_length=1)
@@ -40,7 +40,6 @@ class TranslateRequest(BaseModel):
     bilingual: bool = False
     timeout: int | None = None
     reasoning_effort: str | None = None
-    openai_api_protocol: str = "responses"
     deepseek_thinking_mode: str = "disabled"
     deepl_formality: str = ""
     fallback_mode: str = "immediate"
@@ -118,7 +117,6 @@ def get_supported_args() -> set[str]:
     for flag in (
         "--request-timeout",
         "--openai-reasoning-effort",
-        "--openai-api-protocol",
         "--no-thinking",
         "--with-thinking",
         "--omit-thinking",
@@ -211,11 +209,6 @@ def build_translator_args(
             args.extend(["--openai-reasoning-effort", req.reasoning_effort])
         else:
             warnings.append("translator script does not support --openai-reasoning-effort yet, skipped")
-    if req.provider == "openai" and "--openai-api-protocol" in supported_args:
-        protocol = req.openai_api_protocol if req.openai_api_protocol in {"responses", "chat-completions"} else "responses"
-        args.extend(["--openai-api-protocol", protocol])
-    elif req.provider == "openai" and req.openai_api_protocol == "chat-completions":
-        warnings.append("translator script does not support --openai-api-protocol yet; using its default protocol")
     if req.provider == "deepseek":
         thinking_mode = (req.deepseek_thinking_mode or "disabled").strip().lower()
         if thinking_mode == "disabled" and "--no-thinking" in supported_args:
@@ -252,7 +245,6 @@ def build_cache_key(vtt_text: str, req: TranslateRequest) -> str:
         "max_chars": req.max_chars,
         "bilingual": req.bilingual,
         "reasoning_effort": req.reasoning_effort,
-        "openai_api_protocol": req.openai_api_protocol,
         "deepseek_thinking_mode": req.deepseek_thinking_mode,
         "deepl_formality": req.deepl_formality,
         "fallback_mode": req.fallback_mode,

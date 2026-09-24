@@ -45,9 +45,6 @@
         model: String(el.model.value || "").trim(),
         modelMode: profile.modelMode === "custom" ? "custom" : "catalog",
         target: String(el.target?.value || state.config.target || "ZH").trim().toUpperCase(),
-        openaiApiProtocol: provider() === "openai"
-          ? String(el.openaiApiProtocol?.value ?? profile.openaiApiProtocol ?? "responses")
-          : "",
         reasoningEffort: el.reasoningEffort?.value ?? profile.reasoningEffort ?? "",
         deepseekThinkingMode: el.deepseekThinkingMode?.value ?? profile.deepseekThinkingMode ?? "disabled",
         deeplFormality: el.deeplFormality?.value ?? profile.deeplFormality ?? "",
@@ -232,7 +229,6 @@
       const profile = currentProfile();
       syncModelControls(profile);
       if (el.endpoint) el.endpoint.value = String(profile.endpoint || "");
-      if (el.openaiApiProtocol) el.openaiApiProtocol.value = profile.openaiApiProtocol || "responses";
       const hints = {
         "google-web": "Google Translate 不需要 API Key。",
         deepl: "Key 只用于验证当前 DeepL 地址；翻译测试会产生少量 API 用量。",
@@ -391,7 +387,7 @@
       state.timer = setTimeout(() => { discover(false); }, 1000);
     }
     function permissionContextKey(value) {
-      return JSON.stringify([value.provider, value.apiKey, value.endpoint, value.model, value.target, value.openaiApiProtocol]);
+      return JSON.stringify([value.provider, value.apiKey, value.endpoint, value.model, value.target]);
     }
     function requestEndpointPermission(value, resource) {
       if (value.provider === "google-web" || !value.apiKey) return Promise.resolve(true);
@@ -399,7 +395,7 @@
       try {
         endpoint = value.provider === "deepl"
           ? configApi.deeplEndpointFor(value.endpoint, resource, value.apiKey)
-          : configApi.endpointFor(value.provider, value.endpoint, resource, value.model, value.openaiApiProtocol);
+          : configApi.endpointFor(value.provider, value.endpoint, resource, value.model);
       } catch (error) {
         return Promise.reject(error);
       }
@@ -467,10 +463,6 @@
     }
     function onTargetInput() { invalidate("尚未测试此配置", false); }
     function onProfileParamInput() { invalidate("尚未测试此配置", false); }
-    function onOpenAiProtocolInput() {
-      invalidate("尚未测试此配置", true);
-      showCachedModels();
-    }
     function onProviderChange() {
       clearTimeout(state.timer);
       const priorKey = el.apiKey.dataset.forProvider;
@@ -556,7 +548,6 @@
     });
     el.showIncompatible?.addEventListener("change", renderModels);
     el.target?.addEventListener("change", onTargetInput);
-    el.openaiApiProtocol?.addEventListener("change", onOpenAiProtocolInput);
     for (const id of ["reasoningEffort", "deepseekThinkingMode", "deeplFormality", "timeout", "useLocalBackend"]) {
       el[id]?.addEventListener("input", onProfileParamInput);
       el[id]?.addEventListener("change", onProfileParamInput);
@@ -609,7 +600,6 @@
           model: String(loaded.model || "").trim(),
           modelMode: loaded.modelMode === "custom" ? "custom" : "catalog",
           target: String(loaded.target || "ZH").trim().toUpperCase(),
-          openaiApiProtocol: current.provider === "openai" ? loaded.openaiApiProtocol || "responses" : "",
           reasoningEffort: loaded.reasoningEffort || "",
           deepseekThinkingMode: loaded.deepseekThinkingMode || "disabled",
           deeplFormality: loaded.deeplFormality || "",

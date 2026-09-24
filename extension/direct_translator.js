@@ -215,12 +215,12 @@ globalThis.Echo360DirectTranslator = (() => {
     return Array.from({ length: expectedLen }, (_, i) => out.get(i) || "");
   }
 
-  function normalizeOpenAiEndpoint(endpoint, adapter, protocol = "responses") {
-    return globalThis.Echo360ProviderConfig.endpointFor("openai", endpoint || adapter.defaultEndpoint, "translate", "", protocol);
+  function normalizeOpenAiEndpoint(endpoint, adapter) {
+    return globalThis.Echo360ProviderConfig.endpointFor("openai", endpoint || adapter.defaultEndpoint, "translate");
   }
 
-  function normalizeChatCompletionsEndpoint(endpoint, adapter, openaiApiProtocol = "responses") {
-    return globalThis.Echo360ProviderConfig.endpointFor(adapter.id, endpoint || adapter.defaultEndpoint, "translate", "", openaiApiProtocol);
+  function normalizeChatCompletionsEndpoint(endpoint, adapter) {
+    return globalThis.Echo360ProviderConfig.endpointFor(adapter.id, endpoint || adapter.defaultEndpoint, "translate");
   }
 
   function normalizeGeminiEndpoint(endpoint, model, adapter) {
@@ -391,7 +391,7 @@ globalThis.Echo360DirectTranslator = (() => {
       ],
       ...(effort ? { reasoning: { effort } } : {}),
     };
-    const data = await fetchJson(normalizeOpenAiEndpoint(cfg.endpoint, adapter, cfg.openai_api_protocol || cfg.openaiApiProtocol || "responses"), {
+    const data = await fetchJson(normalizeOpenAiEndpoint(cfg.endpoint, adapter), {
       method: "POST",
       headers: {
         ...adapter.authHeaders(cfg.api_key),
@@ -417,8 +417,7 @@ globalThis.Echo360DirectTranslator = (() => {
       ...(openAiEffort ? { reasoning_effort: openAiEffort } : {}),
       ...(adapter.buildExtraBody ? adapter.buildExtraBody(cfg) : {}),
     };
-    const openAiApiProtocol = cfg.openai_api_protocol || cfg.openaiApiProtocol || "responses";
-    const data = await fetchJson(normalizeChatCompletionsEndpoint(cfg.endpoint, adapter, openAiApiProtocol), {
+    const data = await fetchJson(normalizeChatCompletionsEndpoint(cfg.endpoint, adapter), {
       method: "POST",
       headers: {
         ...adapter.authHeaders(cfg.api_key),
@@ -493,7 +492,7 @@ globalThis.Echo360DirectTranslator = (() => {
       "chat-completions": callChatCompletions,
       "gemini-generate-content": callGemini,
     };
-    const selectedProtocol = adapter.id === "openai" && (cfg.openai_api_protocol || cfg.openaiApiProtocol) === "chat-completions"
+    const selectedProtocol = adapter.id === "openai" && globalThis.Echo360ProviderConfig.openaiProtocolForEndpoint(cfg.endpoint || adapter.defaultEndpoint) === "chat-completions"
       ? "chat-completions"
       : adapter.protocol;
     const call = protocolCalls[selectedProtocol];

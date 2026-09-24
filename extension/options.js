@@ -126,7 +126,6 @@ function readCurrentProfile(provider) {
       base.model = String(base.catalogModel || "").trim();
     }
     base.endpoint = getInputValue("endpoint", base.endpoint || "").trim();
-    base.openaiApiProtocol = getInputValue("openaiApiProtocol", base.openaiApiProtocol || "responses");
   }
   for (const field of performanceFields) {
     const input = document.getElementById(field);
@@ -153,7 +152,6 @@ function loadProviderProfile(provider) {
   if (endpoint) endpoint.placeholder = providerConfig.DEFAULT_ENDPOINTS[provider] || "留空使用默认地址";
   for (const field of performanceFields) setInputValue(field, profile[field]);
   setInputValue("reasoningEffort", profile.reasoningEffort || "");
-  setInputValue("openaiApiProtocol", profile.openaiApiProtocol || "responses");
   setInputValue("deepseekThinkingMode", profile.deepseekThinkingMode || "disabled");
   setInputValue("deeplFormality", profile.deeplFormality || "");
   const endpointHint = document.getElementById("endpointHint");
@@ -207,7 +205,7 @@ async function loadConfig() {
   const stored = await extensionApi.storage.local.get(STORAGE_KEY);
   const existing = stored[STORAGE_KEY] || {};
   rawConfig = providerConfig.migrate(existing);
-  if (Number(existing.configVersion || 0) < 5) await extensionApi.storage.local.set({ [STORAGE_KEY]: rawConfig });
+  if (Number(existing.configVersion || 0) < 6) await extensionApi.storage.local.set({ [STORAGE_KEY]: rawConfig });
   localApiKeys = { ...rawConfig.apiKeys };
   localProviderSettings = { ...rawConfig.providerSettings };
   activeProvider = rawConfig.provider;
@@ -261,8 +259,8 @@ function captureProfileField(field) {
   }
   const provider = activeProvider;
   let value;
-  if (field === "model" || field === "endpoint" || field === "openaiApiProtocol" || field === "reasoningEffort" || field === "deepseekThinkingMode" || field === "deeplFormality") {
-    value = getInputValue(field, localProviderSettings[provider]?.[field] || (field === "openaiApiProtocol" ? "responses" : "")).trim();
+  if (field === "model" || field === "endpoint" || field === "reasoningEffort" || field === "deepseekThinkingMode" || field === "deeplFormality") {
+    value = getInputValue(field, localProviderSettings[provider]?.[field] || "").trim();
   } else if (field === "fallbackMode") {
     value = getInputValue(field, localProviderSettings[provider]?.[field] || "immediate");
   } else {
@@ -576,7 +574,7 @@ document.getElementById("apiKey").addEventListener("change", (event) => {
   const provider = event.target.dataset.forProvider;
   if (provider) { localApiKeys[provider] = event.target.value.trim(); dirtyKeys.add(provider); scheduleAutoSave(true); }
 });
-for (const id of ["model", "endpoint", "openaiApiProtocol", "target", ...performanceFields, "reasoningEffort", "deepseekThinkingMode", "deeplFormality", "useLocalBackend", "backendUrl", "appearance"]) {
+for (const id of ["model", "endpoint", "target", ...performanceFields, "reasoningEffort", "deepseekThinkingMode", "deeplFormality", "useLocalBackend", "backendUrl", "appearance"]) {
   document.getElementById(id)?.addEventListener("input", () => {
     if (providerConfig.PROFILE_FIELDS.includes(id)) captureProfileField(id);
     else captureGlobalField(id);
@@ -615,7 +613,6 @@ setup = window.Echo360ProviderSetup.mount({
     customModelEnabled: document.getElementById("customModelEnabled"),
     customModel: document.getElementById("customModel"),
     endpoint: document.getElementById("endpoint"),
-    openaiApiProtocol: document.getElementById("openaiApiProtocol"),
     target: document.getElementById("target"),
     catalogStatus: document.getElementById("catalogStatus"),
     verificationStatus: document.getElementById("verificationStatus"),

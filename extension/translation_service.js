@@ -121,7 +121,6 @@
       bilingual: false,
       timeout: cfg.timeout != null ? (Number(cfg.timeout) || null) : null,
       reasoning_effort: cfg.reasoningEffort || null,
-      openai_api_protocol: cfg.openaiApiProtocol || "responses",
       fallback_mode: cfg.fallbackMode || "immediate",
       repair_concurrency: Number(cfg.repairConcurrency) || 1,
       slow_split_threshold: Number(cfg.slowSplitThreshold) || 0,
