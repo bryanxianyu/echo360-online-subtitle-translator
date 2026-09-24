@@ -4,7 +4,7 @@
 
 Chrome/Safari extension for loading translated subtitles on Echo360 recordings; the local FastAPI backend is kept as a development, fallback, and batch-processing path.
 
-Current extension version: **1.5.0**
+Current extension version: **1.6.0**
 
 ## What It Does
 
@@ -14,7 +14,8 @@ Current extension version: **1.5.0**
    `translator/translate_vtt_zh_deepl_native.py`
 4. Displays translated subtitles on the active Echo360 video; **the default is a shared HTML overlay with a rounded translucent background**. Enable **使用原生 CC 注入（Beta）** in settings to try Echo360 native CC injection (may still miss cues at higher playback speeds; falls back automatically when the lesson has no native caption slot).
 5. **Incremental display while translating** (1.3.0): subtitles mount immediately on click; pending cues show `正在翻译中...` until each batch completes.
-6. **Per-provider API keys** with real-time sync between the popup and options page; switching providers loads the matching key automatically.
+6. **Per-provider API keys, models, endpoints, and performance settings** with live sync and autosave across the popup and options page.
+7. Entering an API key loads the account's model catalog and verifies the current model once; after switching models, use “点此验证服务” when needed.
 
 ## Subtitle Source Discovery
 
@@ -200,12 +201,12 @@ Test files live under `tests/unit/`; see `vitest.config.js` for configuration.
 ## Defaults
 
 - provider: `google-web`
-- model: empty by default (Gemini preset: `gemini-3.1-flash-lite`)
+- model: empty for Google and DeepL; `gpt-6-luna` for OpenAI, `deepseek-flash` for DeepSeek, and `gemini-3.5-flash-lite` for Gemini
 - target: `ZH`
-- max_paragraphs: `6`
-- max_chars: `1200`
-- concurrency: `96`
-- rps: `0`
+- max_paragraphs: `6` for AI/API providers, `20` for Google
+- max_chars: `1200` for AI/API providers, `2000` for Google
+- concurrency: `96` for AI/API providers, `16` for Google
+- rps: `0` for AI/API providers, `12` for Google
 - retries: `1`
 - timeout: `10`
 - reasoning_effort: empty by default
@@ -218,7 +219,6 @@ Target language options: `ZH`, `ZH-HK`, `YUE`, `EN`, `JA`, `KO`, `FR`, `DE`, `ES
 In the Chrome Web Store build, advanced translation settings only show provider-specific options:
 - OpenAI: `Reasoning Effort`
 - DeepSeek: `DeepSeek Thinking` (disabled by default to reduce latency)
-- Gemini: default model `gemini-3.1-flash-lite`
 - DeepL: `DeepL Formality`
 
 The dev build also keeps local-backend tuning controls such as `maxParagraphs`, `maxChars`, `concurrency`, `rps`, `retries`, `timeout`, `fallbackMode`, `repairConcurrency`, and `slowSplitThreshold`.
@@ -229,7 +229,7 @@ Language notes:
 Google Translate provider:
 - `google-web` uses an unofficial web endpoint and does not require an API key, so it is useful for quick first-run testing
 - The store build calls it directly from the extension frontend; the dev build can optionally proxy it through the local backend
-- The backend/script path caps it at `concurrency=96, max_chars=1200, max_paragraphs=10`
+- Google concurrency, request rate, and batching settings use its separate provider profile
 - This endpoint is unofficial, so stability, availability, and translation quality are not guaranteed
 - For better subtitle translation quality, use an AI/API provider such as `deepseek`, `openai`, `gemini`, or `deepl` with your own API key
 
@@ -242,7 +242,7 @@ See [PRIVACY.md](PRIVACY.md). The extension sends subtitle text to the translati
 The backend builds an argument list directly instead of shell-parsing a command string. By default it uses:
 
 ```text
-python translator/translate_vtt_zh_deepl_native.py input.vtt --out translated.vtt --key ... --provider deepseek --model deepseek-v4-flash --target ZH
+python translator/translate_vtt_zh_deepl_native.py input.vtt --out translated.vtt --key ... --provider deepseek --model deepseek-flash --target ZH
 ```
 
 Optional environment overrides:

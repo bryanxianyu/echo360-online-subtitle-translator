@@ -9,7 +9,8 @@
     SUBTITLE_SIZE_OPTIONS,
   } = ns.constants;
   const extensionApi = ns.browserApi;
-  const KEYLESS_PROVIDERS = new Set(["google-web"]);
+  const providerConfig = globalThis.Echo360ProviderConfig || window.Echo360ProviderConfig;
+  const KEYLESS_PROVIDERS = providerConfig?.KEYLESS_PROVIDERS || new Set(["google-web"]);
   // Schema history:
   //   v2 – defaulted to Echo360 native CC injection (useNativeSubtitles=false).
   //   v3 – native CC injection demoted to an opt-in Beta; default is the
@@ -163,26 +164,25 @@
       model: "",
       endpoint: "",
       target: "ZH",
-      maxParagraphs: 6,
-      maxChars: 1200,
-      concurrency: 96,
-      rps: 0,
+      maxParagraphs: 20,
+      maxChars: 2000,
+      concurrency: 16,
+      rps: 12,
       retries: 1,
       timeout: 10,
       reasoningEffort: "",
       fallbackMode: "immediate",
       repairConcurrency: 1,
       slowSplitThreshold: 0,
+      providerSettings: {},
       deepseekThinkingMode: "disabled",
       deeplFormality: "",
     };
-    // Resolve the effective API key for the current provider from the per-provider
-    // map, falling back to the legacy single apiKey field for migration.
-    const provider = config.provider || "google-web";
-    const effectiveApiKey = KEYLESS_PROVIDERS.has(provider)
-      ? ""
-      : (config.apiKeys?.[provider] ?? config.apiKey ?? "");
-    const resolved = { ...config, apiKey: effectiveApiKey, apiKeys: config.apiKeys || {} };
+    const normalized = providerConfig ? providerConfig.migrate(config) : config;
+    if (providerConfig && Number(config.configVersion || 0) < 3) {
+      await extensionApi.storage.local.set({ [STORAGE_KEY]: normalized });
+    }
+    const resolved = providerConfig ? providerConfig.resolve(normalized) : normalized;
     if (!isLocalBackendEnabled()) {
       return { ...resolved, useLocalBackend: false };
     }
@@ -190,7 +190,8 @@
   }
 
   async function saveConfig(config) {
-    await extensionApi.storage.local.set({ [STORAGE_KEY]: config });
+    const normalized = providerConfig ? providerConfig.migrate(config) : config;
+    await extensionApi.storage.local.set({ [STORAGE_KEY]: normalized });
   }
 
   async function getOnboardingSeen() {

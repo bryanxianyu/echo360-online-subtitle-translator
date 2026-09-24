@@ -2,10 +2,6 @@
   const ns = window.Echo360Translator;
   const { TARGET_OPTIONS, TARGET_LABELS, DEFAULT_SUBTITLE_SIZE, PROVIDER_LABELS, STORAGE_KEY } = ns.constants;
 
-  function openOptionsPage() {
-    chrome.runtime.sendMessage({ type: "OPEN_OPTIONS_PAGE" });
-  }
-
   function styleDisabledControl(control, disabled) {
     if (!control) return;
     control.style.opacity = disabled ? "0.45" : "";
@@ -98,6 +94,23 @@
       statusText: pop.querySelector("#echo360-status-text"),
     };
 
+    function showConnectionError(error, fallback) {
+      const invalidated = /extension context invalidated/i.test(String(error?.message || error));
+      if (invalidated) refs.currentProvider.textContent = "请刷新页面";
+      refs.statusText.textContent = invalidated
+        ? "扩展已重新加载或更新，请刷新当前课程页面后再使用翻译。"
+        : fallback;
+    }
+
+    async function openOptionsPage() {
+      try {
+        const result = await ns.browserApi.runtime.sendMessage({ type: "OPEN_OPTIONS_PAGE" });
+        if (result?.ok === false) throw new Error(result.error || "打开设置失败");
+      } catch (error) {
+        showConnectionError(error, "无法打开设置，请从浏览器工具栏打开扩展的完整设置；若刚更新扩展，请刷新课程页面。");
+      }
+    }
+
     function syncRenderModeControls() {
       // Bilingual/reverse-order/size apply to the unified overlay
       // renderer: native CC injection always adds a single translated line
@@ -158,8 +171,16 @@
       pop.style.display = show ? "block" : "none";
       if (!show) return;
 
-      const prefs = await ns.storage.getPrefs();
-      const cfg = await ns.storage.getConfig();
+      let prefs;
+      let cfg;
+      try {
+        prefs = await ns.storage.getPrefs();
+        cfg = await ns.storage.getConfig();
+      } catch (error) {
+        refs.currentProvider.textContent = "读取失败";
+        showConnectionError(error, "无法读取翻译设置，请刷新课程页面后重试。");
+        return;
+      }
       browserModePrefs = {
         bilingual: prefs.browserBilingual ?? (prefs.useNativeSubtitles === true ? !!prefs.bilingual : false),
         reverseOrder: prefs.browserReverseOrder ?? (prefs.useNativeSubtitles === true ? !!prefs.reverseOrder : false),

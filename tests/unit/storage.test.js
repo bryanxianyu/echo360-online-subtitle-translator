@@ -25,6 +25,7 @@ function setupStorage({ storageData = {}, enableLocalBackend = false } = {}) {
     },
   });
   window.Echo360Translator = ns;
+  evalModule("provider_config.js");
   evalModule("storage.js");
   return { storage: window.Echo360Translator.storage, localMock };
 }
@@ -174,6 +175,40 @@ describe("getConfig", () => {
     const cfg = await storage.getConfig();
     expect(cfg.provider).toBe("google-web");
     expect(cfg.target).toBe("ZH");
+  });
+
+  it("resolves performance settings from the active provider", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        echo360TranslatorConfig: {
+          provider: "deepseek",
+          providerSettings: {
+            deepseek: { concurrency: 4, rps: 1, maxParagraphs: 10, maxChars: 800, retries: 0, timeout: 25 },
+            "google-web": { concurrency: 16, rps: 12 },
+          },
+        },
+      },
+    });
+    const cfg = await storage.getConfig();
+    expect(cfg.concurrency).toBe(4);
+    expect(cfg.rps).toBe(1);
+    expect(cfg.maxParagraphs).toBe(10);
+    expect(cfg.maxChars).toBe(800);
+    expect(cfg.retries).toBe(0);
+    expect(cfg.timeout).toBe(25);
+  });
+
+  it("migrates legacy top-level performance settings for the active provider", async () => {
+    const { storage } = setupStorage({
+      storageData: {
+        echo360TranslatorConfig: { provider: "openai", concurrency: 7, rps: 2, maxParagraphs: 4, maxChars: 600 },
+      },
+    });
+    const cfg = await storage.getConfig();
+    expect(cfg.concurrency).toBe(7);
+    expect(cfg.rps).toBe(2);
+    expect(cfg.maxParagraphs).toBe(4);
+    expect(cfg.maxChars).toBe(600);
   });
 
   it("resolves apiKey from apiKeys[provider] map (per-provider key storage)", async () => {

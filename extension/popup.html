@@ -5,132 +5,107 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Echo360 Translator</title>
     <style>
-      :root {
-        color-scheme: light;
-        --bg: #f7f3ec;
-        --ink: #171411;
-        --muted: #6e6258;
-        --line: #d8cfc3;
-        --field: #fffdf8;
-        --accent: #0d5c63;
-        --accent-ink: #ffffff;
-      }
-
-      * { box-sizing: border-box; }
-
-      body {
-        width: 340px;
-        margin: 0;
-        padding: 16px;
-        background: radial-gradient(circle at top left, #fff4dc 0, var(--bg) 55%, #eaf3f2 100%);
-        color: var(--ink);
-        font-family: ui-sans-serif, "Avenir Next", "Helvetica Neue", Arial, sans-serif;
-      }
-
-      h1 {
-        margin: 0 0 6px;
-        font-size: 18px;
-        line-height: 1.2;
-        font-weight: 800;
-      }
-
-      p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.45;
-      }
-
-      .card {
-        margin-top: 12px;
-        padding: 12px;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        background: rgba(255, 253, 248, 0.9);
-      }
-
-      label {
-        display: block;
-        margin-top: 12px;
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      select,
-      input {
-        width: 100%;
-        margin-top: 6px;
-        padding: 9px 10px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--field);
-        color: var(--ink);
-        font: 14px/1.25 inherit;
-      }
-
-      input:disabled {
-        color: var(--muted);
-        background: #f0ebe3;
-      }
-
-      button {
-        width: 100%;
-        margin-top: 12px;
-        padding: 10px 12px;
-        border: 0;
-        border-radius: 8px;
-        background: var(--accent);
-        color: var(--accent-ink);
-        cursor: pointer;
-        font-weight: 800;
-      }
-
-      button.secondary {
-        background: #2f3637;
-      }
-
-      button:disabled {
-        cursor: default;
-        opacity: 0.7;
-      }
-
-      .hint {
-        margin-top: 6px;
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.45;
-      }
-
-      #status {
-        min-height: 18px;
-        margin-top: 10px;
-        color: var(--accent);
-        font-size: 12px;
-        line-height: 1.4;
-      }
+      :root { color-scheme: light; --bg:#f7f3ec; --ink:#171411; --muted:#6e6258; --line:#d8cfc3; --field:#fffdf8; --accent:#0d5c63; --danger:#9d2b2b; }
+      * { box-sizing:border-box; }
+      body { width:390px; max-height:600px; overflow:auto; margin:0; padding:16px; background:radial-gradient(circle at top left,#fff4dc 0,var(--bg) 55%,#eaf3f2 100%); color:var(--ink); font-family:ui-sans-serif,"Avenir Next","Helvetica Neue",Arial,sans-serif; }
+      h1 { margin:0 0 6px; font-size:18px; line-height:1.2; font-weight:800; }
+      p { margin:0; color:var(--muted); font-size:12px; line-height:1.45; }
+      .card { margin-top:12px; padding:12px; border:1px solid var(--line); border-radius:12px; background:rgba(255,253,248,.92); }
+      label { display:block; margin-top:12px; color:var(--muted); font-size:12px; font-weight:800; }
+      .provider-heading-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; }
+      .provider-heading-row > label { margin:0; }
+      .provider-verify-button { flex:0 0 auto; margin:0; padding:3px 0; border:0; border-radius:4px; background:transparent; color:var(--accent); font:inherit; font-size:12px; font-weight:700; text-decoration:underline; }
+      .provider-verify-button:hover { filter:brightness(.82); }
+      .provider-verify-button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+      select,input { width:100%; margin-top:6px; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:var(--field); color:var(--ink); font:14px/1.25 inherit; }
+      input:disabled { color:var(--muted); background:#f0ebe3; }
+      input[type=checkbox] { width:auto; margin:0 6px 0 0; }
+      button { margin-top:10px; padding:9px 11px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; font-weight:800; }
+      button.secondary { background:#2f3637; }
+      button:disabled { cursor:default; opacity:.7; }
+      .hint,.provider-status { margin-top:6px; color:var(--muted); font-size:12px; line-height:1.45; overflow-wrap:anywhere; }
+      .provider-status { min-height:18px; }
+      .provider-status.error,#status[data-state=error] { color:var(--danger); }
+      .provider-actions { display:flex; gap:8px; align-items:center; }
+      .provider-checkbox { font-weight:500; }
+      .model-picker-control { margin-top:6px; }
+      .model-picker-toggle { display:flex; width:100%; align-items:center; justify-content:space-between; margin:0; text-align:left; border:1px solid var(--line); background:var(--field); color:var(--ink); }
+      .model-picker-panel { margin-top:6px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--field); }
+      .model-picker-panel #modelSearch { margin-top:0; }
+      #modelOptions { height:126px; }
+      .model-picker-more { margin-top:8px; }
+      .model-picker-more summary { cursor:pointer; color:var(--muted); font-size:12px; }
+      .model-picker-more label { margin:8px 0 0; }
+      .custom-model-toggle { display:flex; align-items:center; font-weight:500; }
+      .custom-model-toggle input[type=checkbox] { width:auto; margin:0 6px 0 0; }
+      #status { min-height:18px; margin-top:10px; color:var(--accent); font-size:12px; line-height:1.4; }
+      .autosave-row { display:flex; align-items:center; gap:8px; }
+      .autosave-row #status { flex:1; }
+      .autosave-row button { margin-top:10px; padding:6px 8px; font-size:11px; }
+      .autosave-row [hidden] { display:none; }
+      .footer-actions { display:flex; gap:8px; }
+      .footer-actions button { flex:1; }
     </style>
   </head>
   <body>
     <h1>Echo360 Translator</h1>
-    <p>默认 Google Translate 可直接试用；如果重视翻译质量，建议在完整设置中配置 AI/API 模型。</p>
+    <p>选择翻译服务并确认当前模型能完成短文本翻译。模型目录和翻译验证分别显示。</p>
 
     <div class="card">
-      <label for="modelPreset">翻译服务</label>
-      <select id="modelPreset"></select>
+      <div class="provider-heading-row">
+        <label for="provider">翻译服务</label>
+        <button id="verifyProvider" class="provider-verify-button" type="button">点此验证服务</button>
+      </div>
+      <select id="provider">
+        <option value="google-web">Google Translate</option>
+        <option value="deepseek">DeepSeek</option>
+        <option value="gemini">Gemini</option>
+        <option value="openai">OpenAI</option>
+        <option value="deepl">DeepL</option>
+      </select>
       <div id="providerHint" class="hint"></div>
+      <div id="verificationStatus" class="provider-status" role="status" aria-live="polite"></div>
 
       <label for="apiKey">API Key</label>
       <input id="apiKey" type="password" autocomplete="off" placeholder="Google Translate 不需要 API Key" />
       <div id="apiKeyHint" class="hint"></div>
+      <div id="catalogStatus" class="provider-status" role="status" aria-live="polite"></div>
 
-      <button id="saveBtn">保存</button>
-      <button id="optionsBtn" class="secondary" type="button">打开完整设置</button>
-      <div id="status" role="status" aria-live="polite"></div>
+      <div class="provider-model-section" hidden>
+        <label for="modelPickerToggle">使用模型</label>
+        <input id="model" type="hidden" />
+        <div id="modelPickerControl" class="model-picker-control">
+          <button id="modelPickerToggle" class="model-picker-toggle" type="button" aria-expanded="false" aria-controls="modelPickerPanel">
+            <span id="modelPickerValue"></span><span aria-hidden="true">⌄</span>
+          </button>
+          <div id="modelPickerPanel" class="model-picker-panel" hidden>
+            <input id="modelSearch" type="search" placeholder="搜索模型名称或 ID" autocomplete="off" aria-label="搜索模型名称或 ID" />
+            <select id="modelOptions" size="5" aria-label="模型候选列表"></select>
+            <details class="model-picker-more">
+              <summary>模型目录选项</summary>
+              <label class="provider-checkbox"><input id="showIncompatible" type="checkbox" />显示明确不兼容的模型</label>
+              <div class="provider-actions"><button id="refreshModels" class="secondary" type="button">刷新模型</button></div>
+            </details>
+          </div>
+        </div>
+        <input id="customModel" type="text" placeholder="输入模型 ID" autocomplete="off" hidden />
+        <label class="provider-checkbox custom-model-toggle"><input id="customModelEnabled" type="checkbox" />输入自定义模型名称</label>
+      </div>
+
+      <div class="footer-actions">
+        <button id="optionsBtn" class="secondary" type="button">完整设置</button>
+      </div>
+      <div class="autosave-row">
+        <div id="status" role="status" aria-live="polite"></div>
+        <button id="retrySaveBtn" class="secondary" type="button" hidden>重试</button>
+      </div>
     </div>
 
     <script src="build_config.js"></script>
+    <script src="browser_api.js"></script>
     <script src="config_keys.js"></script>
+    <script src="provider_config.js"></script>
+    <script src="provider_setup.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

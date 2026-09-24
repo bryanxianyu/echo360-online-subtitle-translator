@@ -5,8 +5,8 @@ globalThis.Echo360DirectTranslator = (() => {
     openai: {
       id: "openai",
       protocol: "openai-responses",
-      defaultModel: "gpt-5-nano",
-      defaultEndpoint: "https://api.openai.com/v1/responses",
+      defaultModel: "",
+      defaultEndpoint: "https://api.openai.com",
       supportsRecursiveFallback: true,
       authHeaders(apiKey) {
         return { "Authorization": `Bearer ${apiKey}` };
@@ -15,8 +15,8 @@ globalThis.Echo360DirectTranslator = (() => {
     deepseek: {
       id: "deepseek",
       protocol: "chat-completions",
-      defaultModel: "deepseek-v4-flash",
-      defaultEndpoint: "https://api.deepseek.com/chat/completions",
+      defaultModel: "",
+      defaultEndpoint: "https://api.deepseek.com",
       supportsRecursiveFallback: true,
       authHeaders(apiKey) {
         return { "Authorization": `Bearer ${apiKey}` };
@@ -31,7 +31,7 @@ globalThis.Echo360DirectTranslator = (() => {
     gemini: {
       id: "gemini",
       protocol: "gemini-generate-content",
-      defaultModel: "gemini-3.1-flash-lite",
+      defaultModel: "",
       defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta",
       supportsRecursiveFallback: true,
       authHeaders(apiKey) {
@@ -105,7 +105,7 @@ globalThis.Echo360DirectTranslator = (() => {
   function providerDefault(provider, key) {
     const adapter = getProviderAdapter(provider);
     if (key === "model") return adapter.defaultModel;
-    if (key === "endpoint") return adapter.defaultEndpoint;
+    if (key === "endpoint") return root.Echo360ProviderConfig?.DEFAULT_ENDPOINTS?.[provider] || adapter.defaultEndpoint;
     return "";
   }
 
@@ -114,29 +114,18 @@ globalThis.Echo360DirectTranslator = (() => {
   }
 
   function resolveModel(cfg) {
-    return String(cfg.model || "").trim() || providerDefault(cfg.provider, "model");
-  }
-
-  function allowedReasoningForModel(model) {
-    const m = String(model || "").toLowerCase();
-    if (m.startsWith("gpt-5.4")) return new Set(["none", "low", "medium", "high", "xhigh"]);
-    if (m.startsWith("gpt-5")) return new Set(["minimal", "low", "medium", "high"]);
-    if (m.startsWith("gpt-4.1") || m.startsWith("gpt-4o-mini")) return new Set(["low"]);
-    return new Set(["low"]);
+    const model = String(cfg.model || "").trim() || providerDefault(cfg.provider, "model");
+    if (["openai", "deepseek", "gemini"].includes(normalizeProvider(cfg.provider)) && !model) {
+      throw new Error("请先获取并选择一个模型，或手动输入模型 ID");
+    }
+    return model;
   }
 
   function resolveOpenAiReasoningEffort(model, rawEffort) {
     const requested = String(rawEffort || "").trim().toLowerCase();
-    let effort = requested || "low";
-    if (!OPENAI_REASONING_EFFORTS.has(effort)) effort = "low";
-    const allowed = allowedReasoningForModel(model);
-    if (!allowed.has(effort)) {
-      if (requested) {
-        throw new Error(`reasoning_effort '${requested}' is not allowed for model '${model}'. allowed=${Array.from(allowed).join(",")}`);
-      }
-      return allowed.has("low") ? "low" : Array.from(allowed)[0];
-    }
-    return effort;
+    if (!requested) return "";
+    if (!OPENAI_REASONING_EFFORTS.has(requested)) throw new Error(`reasoning_effort '${requested}' is unsupported`);
+    return requested;
   }
 
   function buildTextBatches(items, maxParagraphs, maxChars) {
@@ -226,28 +215,16 @@ globalThis.Echo360DirectTranslator = (() => {
     return Array.from({ length: expectedLen }, (_, i) => out.get(i) || "");
   }
 
-  function normalizeOpenAiEndpoint(endpoint, adapter) {
-    const ep = String(endpoint || "").trim();
-    if (!ep) return adapter.defaultEndpoint;
-    if (ep.endsWith("/v1/responses")) return ep;
-    if (ep.startsWith("https://api.openai.com")) return `${ep.replace(/\/+$/, "")}/v1/responses`;
-    return ep;
+  function normalizeOpenAiEndpoint(endpoint, adapter, protocol = "responses") {
+    return globalThis.Echo360ProviderConfig.endpointFor("openai", endpoint || adapter.defaultEndpoint, "translate", "", protocol);
   }
 
-  function normalizeChatCompletionsEndpoint(endpoint, adapter) {
-    const ep = String(endpoint || "").trim();
-    if (!ep) return adapter.defaultEndpoint;
-    if (ep.endsWith("/chat/completions")) return ep;
-    if (ep.endsWith("/v1")) return `${ep}/chat/completions`;
-    if (adapter.id === "deepseek" && ep.startsWith("https://api.deepseek.com")) return adapter.defaultEndpoint;
-    return ep;
+  function normalizeChatCompletionsEndpoint(endpoint, adapter, openaiApiProtocol = "responses") {
+    return globalThis.Echo360ProviderConfig.endpointFor(adapter.id, endpoint || adapter.defaultEndpoint, "translate", "", openaiApiProtocol);
   }
 
   function normalizeGeminiEndpoint(endpoint, model, adapter) {
-    const ep = String(endpoint || adapter.defaultEndpoint).trim().replace(/\/+$/, "");
-    if (ep.endsWith(":generateContent")) return ep;
-    if (ep.includes("/models/")) return `${ep}:generateContent`;
-    return `${ep}/models/${model}:generateContent`;
+    return globalThis.Echo360ProviderConfig.endpointFor("gemini", endpoint || adapter.defaultEndpoint, "translate", model);
   }
 
   function normalizeGoogleWebEndpoint(endpoint) {
@@ -327,9 +304,33 @@ globalThis.Echo360DirectTranslator = (() => {
     }
     const timer = setTimeout(() => controller.abort(), Math.max(1, Number(timeoutSeconds) || 30) * 1000);
     try {
-      const resp = await fetch(url, { ...init, signal: controller.signal });
+      const resp = await fetch(url, { ...init, signal: controller.signal, redirect: "error" });
       const text = await resp.text();
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${text.slice(0, 500)}`);
+      if (!resp.ok) {
+        let details = text;
+        try {
+          const parsed = JSON.parse(text);
+          details = parsed?.error?.message || parsed?.message || text;
+        } catch (_) { details = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " "); }
+        const headerEntries = typeof Headers !== "undefined" && init.headers instanceof Headers
+          ? Array.from(init.headers.entries())
+          : Object.entries(init.headers || {});
+        const credential = headerEntries.find(([name]) => /^(authorization|x-goog-api-key)$/i.test(name))?.[1];
+        const secret = String(credential || "").replace(/^(?:Bearer|DeepL-Auth-Key)\s+/i, "");
+        const redacted = secret ? String(details || "").split(secret).join("[redacted]") : String(details || "");
+        const message = String(redacted || `HTTP ${resp.status}`).replace(/\s+/g, " ").slice(0, 300);
+        const err = new Error(`HTTP ${resp.status}: ${message}`);
+        err.httpStatus = resp.status;
+        const normalized = message.toLowerCase();
+        err.category = resp.status === 401 ? "invalid_key"
+          : resp.status === 403 ? (/quota|billing|credit/.test(normalized) ? "quota_exceeded" : "permission_denied")
+            : resp.status === 429 ? (/quota|billing|credit/.test(normalized) ? "quota_exceeded" : "rate_limited")
+              : resp.status === 404 ? "model_unavailable"
+                : resp.status === 400 ? "invalid_configuration" : resp.status >= 500 ? "network_error" : "invalid_response";
+        const retryAfter = Number(resp.headers?.get?.("Retry-After"));
+        if (Number.isFinite(retryAfter) && retryAfter > 0) err.retryAfterSeconds = retryAfter;
+        throw err;
+      }
       try {
         return JSON.parse(text);
       } catch (_) {
@@ -362,32 +363,35 @@ globalThis.Echo360DirectTranslator = (() => {
 
   function extractGeminiText(data) {
     const parts = data?.candidates?.[0]?.content?.parts || [];
-    const text = parts.map((part) => part?.text || "").join("").trim();
+    const text = parts.filter((part) => part?.thought !== true).map((part) => part?.text || "").join("").trim();
     if (text) return text;
     throw new Error("Gemini response missing candidates[0].content.parts text");
   }
 
-  function extractGoogleWebText(data) {
+  function extractGoogleWebLines(data, expectedCount) {
     const chunks = Array.isArray(data?.[0]) ? data[0] : [];
     const text = chunks.map((item) => Array.isArray(item) ? item[0] || "" : "").join("").trim();
-    if (text) return text;
-    throw new Error("Google Translate response missing translated text");
+    if (!text) throw new Error("Google Translate response missing translated text");
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    if (lines.length !== expectedCount) {
+      throw new Error(`Google Translate returned ${lines.length} lines for ${expectedCount} inputs`);
+    }
+    return lines;
   }
 
   async function callOpenAi(texts, cfg, adapter, jsonMode = false) {
     const prompt = jsonMode ? buildIndexedJsonPrompt(texts, cfg.target) : buildDelimitedPrompt(texts, cfg.target);
     const model = resolveModel(cfg);
+    const effort = resolveOpenAiReasoningEffort(model, cfg.reasoning_effort || cfg.reasoningEffort);
     const body = {
       model,
       input: [
         { role: "system", content: [{ type: "input_text", text: prompt.system }] },
         { role: "user", content: [{ type: "input_text", text: prompt.user }] },
       ],
-      reasoning: {
-        effort: resolveOpenAiReasoningEffort(model, cfg.reasoning_effort || cfg.reasoningEffort),
-      },
+      ...(effort ? { reasoning: { effort } } : {}),
     };
-    const data = await fetchJson(normalizeOpenAiEndpoint(cfg.endpoint, adapter), {
+    const data = await fetchJson(normalizeOpenAiEndpoint(cfg.endpoint, adapter, cfg.openai_api_protocol || cfg.openaiApiProtocol || "responses"), {
       method: "POST",
       headers: {
         ...adapter.authHeaders(cfg.api_key),
@@ -400,16 +404,21 @@ globalThis.Echo360DirectTranslator = (() => {
 
   async function callChatCompletions(texts, cfg, adapter, jsonMode = false) {
     const prompt = jsonMode ? buildIndexedJsonPrompt(texts, cfg.target) : buildDelimitedPrompt(texts, cfg.target);
+    const openAiEffort = adapter.id === "openai"
+      ? resolveOpenAiReasoningEffort(resolveModel(cfg), cfg.reasoning_effort || cfg.reasoningEffort)
+      : "";
     const body = {
       model: resolveModel(cfg),
       messages: [
         { role: "system", content: prompt.system },
         { role: "user", content: prompt.user },
       ],
-      temperature: 0,
+      ...(adapter.id === "openai" ? {} : { temperature: 0 }),
+      ...(openAiEffort ? { reasoning_effort: openAiEffort } : {}),
       ...(adapter.buildExtraBody ? adapter.buildExtraBody(cfg) : {}),
     };
-    const data = await fetchJson(normalizeChatCompletionsEndpoint(cfg.endpoint, adapter), {
+    const openAiApiProtocol = cfg.openai_api_protocol || cfg.openaiApiProtocol || "responses";
+    const data = await fetchJson(normalizeChatCompletionsEndpoint(cfg.endpoint, adapter, openAiApiProtocol), {
       method: "POST",
       headers: {
         ...adapter.authHeaders(cfg.api_key),
@@ -439,7 +448,7 @@ globalThis.Echo360DirectTranslator = (() => {
   }
 
   async function callDeepL(texts, cfg, adapter) {
-    const endpoint = cfg.endpoint || adapter.defaultEndpoint;
+    const endpoint = globalThis.Echo360ProviderConfig.deeplEndpointFor(cfg.endpoint || "", "translate", cfg.api_key);
     const body = new URLSearchParams();
     for (const text of texts) body.append("text", text);
     body.set("target_lang", String(cfg.target || "ZH").toUpperCase() === "ZH-HK" ? "ZH-HANT" : (cfg.target || "ZH"));
@@ -461,16 +470,18 @@ globalThis.Echo360DirectTranslator = (() => {
   async function callGoogleWeb(texts, cfg, adapter) {
     const endpoint = normalizeGoogleWebEndpoint(cfg.endpoint || adapter.defaultEndpoint);
     const target = resolveWebTargetLang(cfg.target);
-    const out = [];
-    for (const text of texts) {
-      const url = `${endpoint}?client=gtx&sl=auto&tl=${encodeURIComponent(target)}&dt=t&q=${encodeURIComponent(text)}`;
-      const data = await fetchJson(url, {
-        method: "GET",
-        headers: { "Accept": "application/json,text/plain,*/*" },
-      }, cfg.timeout, cfg.waitForRequest, cfg.isCancelled, cfg.abortSignal);
-      out.push(extractGoogleWebText(data));
-    }
-    return out;
+    const requestText = texts.join("\n");
+    const url = new URL(endpoint);
+    url.searchParams.set("client", "gtx");
+    url.searchParams.set("sl", "auto");
+    url.searchParams.set("tl", target);
+    url.searchParams.set("dt", "t");
+    url.searchParams.set("q", requestText);
+    const data = await fetchJson(url, {
+      method: "GET",
+      headers: { "Accept": "application/json,text/plain,*/*" },
+    }, cfg.timeout, cfg.waitForRequest, cfg.isCancelled, cfg.abortSignal);
+    return extractGoogleWebLines(data, texts.length);
   }
 
   async function translateBatch(texts, cfg, options = {}) {
@@ -482,7 +493,10 @@ globalThis.Echo360DirectTranslator = (() => {
       "chat-completions": callChatCompletions,
       "gemini-generate-content": callGemini,
     };
-    const call = protocolCalls[adapter.protocol];
+    const selectedProtocol = adapter.id === "openai" && (cfg.openai_api_protocol || cfg.openaiApiProtocol) === "chat-completions"
+      ? "chat-completions"
+      : adapter.protocol;
+    const call = protocolCalls[selectedProtocol];
     if (!call) throw new Error(`Unsupported provider protocol: ${adapter.protocol}`);
     const raw = await call(texts, cfg, adapter, false);
     try {
@@ -501,8 +515,7 @@ globalThis.Echo360DirectTranslator = (() => {
   function isNonRecoverableError(message) {
     const msg = String(message || "");
     return (
-      msg.includes("HTTP 401") ||
-      msg.includes("HTTP 403") ||
+      /HTTP (400|401|403|404|422)\b/.test(msg) ||
       msg.includes("reasoning_effort")
     );
   }
@@ -532,7 +545,8 @@ globalThis.Echo360DirectTranslator = (() => {
       return await withRetries(() => translateBatchChecked(texts, cfg, { jsonFallback: true }), retries, cfg.isCancelled);
     } catch (err) {
       const message = err?.message || String(err);
-      if (cfg.isCancelled() || isNonRecoverableError(message) || isCancellationError(message)) throw new Error("translation cancelled");
+      if (cfg.isCancelled() || isCancellationError(message)) throw new Error("translation cancelled");
+      if (isNonRecoverableError(message)) throw err;
       if (supportsRecursiveFallback(cfg.provider) && texts.length > 1) {
         const mid = Math.floor(texts.length / 2);
         const left = await translateBatchRecursive(texts.slice(0, mid), cfg, retries, warnings, `${label} left`);
@@ -589,7 +603,10 @@ globalThis.Echo360DirectTranslator = (() => {
       isCancelled: handlers.isCancelled || (() => false),
       abortSignal: handlers.abortSignal || null,
     };
-    cfg.waitForRequest = createRateLimiter(payload.rps, cfg.isCancelled);
+    if (["openai", "deepseek", "gemini"].includes(cfg.provider) && !String(payload.model || "").trim()) {
+      throw new Error("请先获取并选择一个模型，或手动输入模型 ID");
+    }
+    cfg.waitForRequest = createRateLimiter(Number(payload.rps) || 0, cfg.isCancelled);
     const lines = String(payload.vtt_text || "").replace(/\r/g, "").split("\n");
     const items = [];
     const lineParts = new Map();
@@ -601,7 +618,9 @@ globalThis.Echo360DirectTranslator = (() => {
     });
     if (items.length === 0) throw new Error("VTT 中没有可翻译文本");
 
-    const batches = buildTextBatches(items, Number(payload.max_paragraphs) || 6, Number(payload.max_chars) || 1200);
+    const maxParagraphs = Number(payload.max_paragraphs) || 6;
+    const maxChars = Number(payload.max_chars) || 1200;
+    const batches = buildTextBatches(items, maxParagraphs, maxChars);
     const translatedLines = [...lines];
     const warnings = [];
     const deferredFailures = [];
@@ -666,7 +685,8 @@ globalThis.Echo360DirectTranslator = (() => {
           }
         } catch (err) {
           const message = err?.message || String(err);
-          if (cfg.isCancelled() || isNonRecoverableError(message) || isCancellationError(message)) throw new Error("translation cancelled");
+          if (cfg.isCancelled() || isCancellationError(message)) throw new Error("translation cancelled");
+          if (isNonRecoverableError(message)) throw err;
           if (fallbackMode === "immediate") {
             warnings.push(`batch ${batchNo + 1}/${batches.length} failed: ${message}`);
             keepOriginalBatch(batch);
@@ -708,7 +728,8 @@ globalThis.Echo360DirectTranslator = (() => {
             applyBatchResult(item.batch, translated);
           } catch (err) {
             const message = err?.message || String(err);
-            if (cfg.isCancelled() || isNonRecoverableError(message) || isCancellationError(message)) throw new Error("translation cancelled");
+            if (cfg.isCancelled() || isCancellationError(message)) throw new Error("translation cancelled");
+            if (isNonRecoverableError(message)) throw err;
             warnings.push(`repair batch ${item.batchNo + 1}/${batches.length} failed: ${message}`);
             keepOriginalBatch(item.batch);
           }
@@ -727,5 +748,32 @@ globalThis.Echo360DirectTranslator = (() => {
     return { translated_vtt: translatedVtt, warnings, cache_hit: false };
   }
 
-  return { translateVtt, getProviderAdapter };
+  async function probeTranslation(payload) {
+    const provider = normalizeProvider(payload.provider);
+    const text = String(payload.target || "").toUpperCase() === "EN"
+      ? "La lección comienza a las nueve."
+      : "The lecture begins at nine.";
+    const cfg = {
+      ...payload,
+      provider,
+      timeout: Math.min(30, Math.max(1, Number(payload.timeout) || 30)),
+      isCancelled: () => !!payload.abortSignal?.aborted,
+      waitForRequest: async () => {},
+    };
+    if (["openai", "deepseek", "gemini"].includes(provider) && !String(payload.model || "").trim()) {
+      throw Object.assign(new Error("请先选择或输入模型 ID"), { category: "invalid_configuration" });
+    }
+    const translated = await translateBatch([text], cfg, { jsonFallback: false });
+    const result = String(translated?.[0] || "").trim();
+    if (!result || result.toLowerCase() === text.toLowerCase()) {
+      throw Object.assign(new Error("服务返回了空文本或未翻译的原文"), { category: "invalid_response" });
+    }
+    const target = String(payload.target || "").toUpperCase();
+    if (["ZH", "ZH-HK", "YUE"].includes(target) && !CJK_RE.test(result)) {
+      throw Object.assign(new Error("返回内容不符合所选目标语言"), { category: "invalid_response" });
+    }
+    return { translation: result };
+  }
+
+  return { translateVtt, probeTranslation, getProviderAdapter };
 })();

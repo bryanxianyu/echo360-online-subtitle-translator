@@ -4,7 +4,7 @@
 
 用于 Echo360 录播课的 Chrome/Safari 扩展，用来加载并显示翻译字幕；本地 FastAPI 后端保留为开发调试、fallback 和批处理路径。
 
-当前扩展版本：**1.5.0**
+当前扩展版本：**1.6.0**
 
 ## 功能概览
 
@@ -14,7 +14,8 @@
   `translator/translate_vtt_zh_deepl_native.py`
 4. 扩展将翻译后的 VTT 显示在当前 Echo360 视频上；**默认使用跨平台统一的圆角半透明字幕覆盖层**。设置中可勾选 **使用原生 CC 注入（Beta）** 尝试注入 Echo360 原生 CC（倍速下仍可能漏译；本课程没有原生字幕位时会自动回退）。
 5. **边翻译边显示**（1.3.0）：点击翻译后立即挂载字幕，未完成的 cue 显示 `正在翻译中...`，随批次完成逐步替换为译文。
-6. **按 provider 分别保存 API Key**；popup 与 options 页实时同步，切换 provider 时自动带出对应 Key。
+6. **按 provider 分别保存 API Key、模型、Endpoint 和性能参数**；popup 与 options 页实时同步并自动保存。
+7. 填写 API Key 后读取当前账号的模型目录，并验证当前模型一次；切换模型后可按需点击“点此验证服务”。
 
 
 
@@ -209,12 +210,12 @@ npm run test:coverage
 ## 默认参数
 
 - provider: `google-web`
-- model: 默认空（Gemini 预设为 `gemini-3.1-flash-lite`）
+- model: Google 与 DeepL 为空；OpenAI 为 `gpt-6-luna`，DeepSeek 为 `deepseek-flash`，Gemini 为 `gemini-3.5-flash-lite`
 - target: `ZH`
-- max_paragraphs: `6`
-- max_chars: `1200`
-- concurrency: `96`
-- rps: `0`
+- max_paragraphs: AI/API 服务为 `6`，Google 为 `20`
+- max_chars: AI/API 服务为 `1200`，Google 为 `2000`
+- concurrency: AI/API 服务为 `96`，Google 为 `16`
+- rps: AI/API 服务为 `0`，Google 为 `12`
 - retries: `1`
 - timeout: `10`
 - reasoning_effort: 默认空
@@ -228,7 +229,6 @@ Chrome 商店版的高级翻译参数只显示与当前 provider 相关的设置
 
 - OpenAI: `Reasoning Effort`
 - DeepSeek: `DeepSeek Thinking`（默认关闭，减少延迟）
-- Gemini: 默认模型 `gemini-3.1-flash-lite`
 - DeepL: `DeepL Formality`
 
 dev 构建会额外保留本地后端调试参数，例如 `maxParagraphs`、`maxChars`、`concurrency`、`rps`、`retries`、`timeout`、`fallbackMode`、`repairConcurrency` 和 `slowSplitThreshold`。
@@ -241,7 +241,7 @@ Google Translate provider：
 
 - `google-web` 使用非官方网页端接口，不需要 API key，适合首次安装后快速试用
 - store 构建会由扩展前端直接请求；dev 构建可选择通过本地后端转发
-- 后端/脚本路径会自动使用 `concurrency=96, max_chars=1200, max_paragraphs=10`
+- Google 的并发、请求速率和分段参数按其独立配置保存与使用
 - 该接口非官方，稳定性、可用性和翻译质量不保证
 - 如果重视字幕翻译质量，建议改用 AI/API provider（如 `deepseek`/`openai`/`gemini`/`deepl`）并填写自己的 API Key
 
@@ -256,7 +256,7 @@ Google Translate provider：
 后端直接构造参数列表，不通过 shell 拼接命令。默认调用方式：
 
 ```text
-python translator/translate_vtt_zh_deepl_native.py input.vtt --out translated.vtt --key ... --provider deepseek --model deepseek-v4-flash --target ZH
+python translator/translate_vtt_zh_deepl_native.py input.vtt --out translated.vtt --key ... --provider deepseek --model deepseek-flash --target ZH
 ```
 
 可选环境变量覆盖：

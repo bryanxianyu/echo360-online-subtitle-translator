@@ -27,6 +27,33 @@ async function openSettings() {
   await Promise.resolve();
 }
 
+describe("settings popover extension connection", () => {
+  it("opens full settings through the shared runtime API", async () => {
+    setupUi({ enabled: true, useNativeSubtitles: true, size: "medium" });
+    const sendMessage = vi.fn(async () => ({ ok: true }));
+    window.Echo360Translator.browserApi.runtime = { sendMessage };
+    document.getElementById("echo360-change-provider-btn").click();
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "OPEN_OPTIONS_PAGE" }));
+  });
+
+  it("explains that the course page needs a refresh when reading settings from an invalidated context", async () => {
+    setupUi({ enabled: true, useNativeSubtitles: true, size: "medium" });
+    window.Echo360Translator.storage.getPrefs.mockRejectedValue(new Error("Extension context invalidated."));
+    await openSettings();
+    await vi.waitFor(() => expect(document.getElementById("echo360-current-provider").textContent).toBe("请刷新页面"));
+    expect(document.getElementById("echo360-status-text").textContent).toContain("刷新当前课程页面");
+  });
+
+  it("shows a recovery message instead of silently failing when Change loses its extension connection", async () => {
+    setupUi({ enabled: true, useNativeSubtitles: true, size: "medium" });
+    window.Echo360Translator.browserApi.runtime = {
+      sendMessage: vi.fn(() => { throw new Error("Extension context invalidated."); }),
+    };
+    document.getElementById("echo360-change-provider-btn").click();
+    expect(document.getElementById("echo360-status-text").textContent).toContain("刷新当前课程页面");
+  });
+});
+
 function changeCheckbox(id, checked) {
   const input = document.getElementById(id);
   input.checked = checked;

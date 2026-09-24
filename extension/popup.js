@@ -1,239 +1,252 @@
-const STORAGE_KEY = "echo360TranslatorConfig";
-const buildConfig = globalThis.Echo360BuildConfig || {};
-const enableLocalBackend = buildConfig.enableLocalBackend !== false;
+(() => {
+  const STORAGE_KEY = "echo360TranslatorConfig";
+  const api = globalThis.Echo360ExtensionApi;
+  const configApi = globalThis.Echo360ProviderConfig;
+  const buildConfig = globalThis.Echo360BuildConfig || {};
+  const enableLocalBackend = buildConfig.enableLocalBackend !== false;
+  const $ = (id) => document.getElementById(id);
+  const providerHints = {
+    "google-web": "免费、无需 API Key，适合先试用；质量通常不如 AI/API 模型。",
+    deepseek: "需要 DeepSeek API Key，适合更高质量字幕翻译；Thinking 默认关闭。",
+    gemini: "需要 Gemini API Key，适合更高质量字幕翻译。",
+    openai: "需要 OpenAI API Key，适合更高质量字幕翻译。",
+    deepl: "需要 DeepL API Key，适合常规机器翻译。"
+  };
 
-const defaultConfig = {
-  apiKey: "",
-  useLocalBackend: false,
-  backendUrl: "http://127.0.0.1:8765",
-  provider: "google-web",
-  model: "",
-  endpoint: "",
-  target: "ZH",
-  maxParagraphs: 6,
-  maxChars: 1200,
-  concurrency: 96,
-  rps: 0,
-  retries: 1,
-  timeout: 10,
-  reasoningEffort: "",
-  fallbackMode: "immediate",
-  repairConcurrency: 1,
-  slowSplitThreshold: 0,
-  deepseekThinkingMode: "disabled",
-  deeplFormality: "",
-};
+  let rawConfig = configApi.migrate({});
+  let activeProvider = rawConfig.provider;
+  let localApiKeys = {};
+  let dirtyKeys = new Set();
+  let profilePatches = {};
+  let selectionDirty = false;
+  let setup = null;
+  let saveTimer = 0;
+  let savePromise = null;
 
-const modelPresets = [
-  { provider: "google-web", model: "", endpoint: "", label: "Google Translate" },
-  { provider: "deepseek", model: "deepseek-v4-flash", endpoint: "", label: "DeepSeek - deepseek-v4-flash" },
-  { provider: "gemini", model: "gemini-3.1-flash-lite", endpoint: "", label: "Gemini - gemini-3.1-flash-lite" },
-  { provider: "openai", model: "gpt-5-nano", endpoint: "", label: "OpenAI - gpt-5-nano" },
-  { provider: "deepl", model: "", endpoint: "", label: "DeepL" },
-];
-const { isKeylessProvider, buildKeyMap, stashKey, resolveForSave } = globalThis.Echo360ConfigKeys;
-const providerHints = {
-  "google-web": "免费、无需 API Key，适合先试用；质量通常不如 AI/API 模型。",
-  deepseek: "需要 DeepSeek API Key，适合更高质量字幕翻译；Thinking 默认关闭。",
-  gemini: "需要 Gemini API Key，适合更高质量字幕翻译。",
-  openai: "需要 OpenAI API Key，适合更高质量字幕翻译。",
-  deepl: "需要 DeepL API Key，适合常规机器翻译。"
-};
+  function setSaveStatus(message, isError = false) {
+    const node = $("status");
+    node.textContent = message;
+    node.dataset.state = isError ? "error" : "success";
+    const retry = $("retrySaveBtn");
+    if (retry) retry.hidden = !isError;
+  }
 
-const extensionApi = globalThis.browser || globalThis.chrome;
-const usesPromiseApi = !!globalThis.browser && extensionApi === globalThis.browser;
+  function hasStagedData() {
+    return dirtyKeys.size > 0 || Object.keys(profilePatches).length > 0 || selectionDirty;
+  }
 
-function storageGet(key) {
-  if (usesPromiseApi) return extensionApi.storage.local.get(key);
-  return new Promise((resolve, reject) => {
-    extensionApi.storage.local.get(key, (result) => {
-      const err = extensionApi.runtime?.lastError;
-      if (err) reject(new Error(err.message || String(err)));
-      else resolve(result);
+  function clonePatches(patches) {
+    return Object.fromEntries(Object.entries(patches).map(([id, patch]) => [id, { ...patch }]));
+  }
+
+  function clearSavedPatches(snapshot) {
+    for (const [id, savedPatch] of Object.entries(snapshot)) {
+      const patch = profilePatches[id];
+      if (!patch) continue;
+      for (const [field, value] of Object.entries(savedPatch)) {
+        if (Object.is(patch[field], value)) delete patch[field];
+      }
+      if (!Object.keys(patch).length) delete profilePatches[id];
+    }
+  }
+
+  function scheduleAutoSave(immediate = false) {
+    if (!hasStagedData()) return;
+    clearTimeout(saveTimer);
+    setSaveStatus("等待自动保存…");
+    if (immediate) {
+      flushAutoSave();
+      return;
+    }
+    saveTimer = setTimeout(() => flushAutoSave(), 600);
+  }
+
+  async function flushAutoSave() {
+    clearTimeout(saveTimer);
+    if (savePromise) {
+      await savePromise;
+      if (hasStagedData() && $("retrySaveBtn")?.hidden) return flushAutoSave();
+      return;
+    }
+    if (!hasStagedData()) return;
+    savePromise = saveConfig();
+    try {
+      await savePromise;
+    } catch (error) {
+      setSaveStatus(`保存失败：${error?.message || String(error)}`, true);
+    } finally {
+      savePromise = null;
+      if (hasStagedData() && $("retrySaveBtn")?.hidden) scheduleAutoSave();
+    }
+  }
+
+  function updateProviderHint() {
+    const provider = $("provider").value;
+    const keyless = configApi.KEYLESS_PROVIDERS.has(provider);
+    $("providerHint").textContent = providerHints[provider] || "";
+    $("apiKeyHint").textContent = keyless
+      ? "无需 API Key。"
+      : "Key 保存在浏览器本地，仅发送给所选服务地址。模型目录成功不代表模型翻译可用。";
+  }
+
+  function profileChanged(provider, patch, profile) {
+    profilePatches[provider] = { ...(profilePatches[provider] || {}), ...patch };
+    const typingCustomModel = patch.modelMode === "custom" && document.activeElement === $("customModel");
+    scheduleAutoSave(Object.prototype.hasOwnProperty.call(patch, "modelMode") && !typingCustomModel);
+  }
+
+  async function loadConfig() {
+    const stored = await api.storage.local.get(STORAGE_KEY);
+    rawConfig = configApi.migrate(stored[STORAGE_KEY] || {});
+    if (Number(stored[STORAGE_KEY]?.configVersion || 0) < 3) {
+      await api.storage.local.set({ [STORAGE_KEY]: rawConfig });
+    }
+    localApiKeys = { ...rawConfig.apiKeys };
+    activeProvider = rawConfig.provider;
+    $("provider").value = activeProvider;
+    updateProviderHint();
+    await setup.load(rawConfig);
+    if (!hasStagedData()) setSaveStatus("更改会自动保存");
+  }
+
+  async function saveConfig() {
+    setSaveStatus("保存中…");
+    const provider = activeProvider;
+    const patchesSnapshot = clonePatches(profilePatches);
+    const keysSnapshot = Object.fromEntries([...dirtyKeys].map((id) => [id, String(localApiKeys[id] || "").trim()]));
+    const modelError = setup?.validateModel();
+    const result = await configApi.withConfigWriteLock(async () => {
+      const stored = await api.storage.local.get(STORAGE_KEY);
+      const latest = configApi.migrate(stored[STORAGE_KEY] || rawConfig);
+      const apiKeys = { ...latest.apiKeys, ...keysSnapshot };
+      const patchesToWrite = clonePatches(patchesSnapshot);
+      const deferred = [];
+      if (modelError && patchesToWrite[provider]) {
+        for (const field of ["model", "modelMode", "catalogModel", "customModel"]) delete patchesToWrite[provider][field];
+        if (!Object.keys(patchesToWrite[provider]).length) delete patchesToWrite[provider];
+        deferred.push("模型 ID 为空，此项尚未保存");
+      }
+      let config = configApi.saveActive({ ...latest, apiKeys }, provider, patchesToWrite[provider] || {}, {}, configApi.KEYLESS_PROVIDERS.has(provider) ? "" : String(apiKeys[provider] || ""));
+      const providerSettings = { ...config.providerSettings };
+      for (const [id, patch] of Object.entries(patchesToWrite)) providerSettings[id] = { ...providerSettings[id], ...patch };
+      config = {
+        ...config,
+        provider,
+        providerSettings,
+        ...providerSettings[provider],
+        apiKeys,
+        apiKey: configApi.KEYLESS_PROVIDERS.has(provider) ? "" : String(apiKeys[provider] || ""),
+        useLocalBackend: enableLocalBackend ? !!latest.useLocalBackend : latest.useLocalBackend,
+      };
+      await api.storage.local.set({ [STORAGE_KEY]: config });
+      return { config, patchesToWrite, keysSnapshot, provider, deferred };
     });
+
+    rawConfig = result.config;
+    clearSavedPatches(result.patchesToWrite);
+    for (const [id, value] of Object.entries(result.keysSnapshot)) {
+      if (String(localApiKeys[id] || "").trim() === value) dirtyKeys.delete(id);
+    }
+    localApiKeys = { ...result.config.apiKeys, ...Object.fromEntries([...dirtyKeys].map((id) => [id, localApiKeys[id]])) };
+    selectionDirty = activeProvider !== result.provider;
+    if (result.deferred.length) setSaveStatus(`${result.deferred.join("；")}。其他设置已保存。`, true);
+    else setSaveStatus(hasStagedData() ? "等待自动保存…" : "已保存");
+  }
+
+  function onExternalConfigChange(changes, area) {
+    if (area !== "local" || !changes[STORAGE_KEY]?.newValue) return;
+    const incoming = configApi.migrate(changes[STORAGE_KEY].newValue);
+    const incomingKeys = { ...incoming.apiKeys };
+    for (const id of dirtyKeys) incomingKeys[id] = localApiKeys[id];
+    localApiKeys = incomingKeys;
+    const mergedProfiles = { ...incoming.providerSettings };
+    for (const [id, patch] of Object.entries(profilePatches)) mergedProfiles[id] = { ...mergedProfiles[id], ...patch };
+    rawConfig = { ...incoming, apiKeys: incomingKeys, providerSettings: mergedProfiles };
+    if (!selectionDirty) {
+      activeProvider = incoming.provider;
+      $("provider").value = activeProvider;
+      updateProviderHint();
+    }
+    const contextMatches = setup.matchesConfig(rawConfig);
+    if (contextMatches) setup.syncConfiguration({ keys: localApiKeys, profiles: mergedProfiles });
+    else if (!selectionDirty && !dirtyKeys.has(activeProvider) && document.activeElement !== $("apiKey")) {
+      // Reload only when the provider request context actually changed.
+      setup.load(rawConfig);
+    }
+  }
+
+  const elements = {
+    provider: $("provider"),
+    apiKey: $("apiKey"),
+    apiKeyHint: $("apiKeyHint"),
+    model: $("model"),
+    modelPickerControl: $("modelPickerControl"),
+    modelPickerToggle: $("modelPickerToggle"),
+    modelPickerPanel: $("modelPickerPanel"),
+    modelPickerValue: $("modelPickerValue"),
+    modelSearch: $("modelSearch"),
+    modelOptions: $("modelOptions"),
+    customModelEnabled: $("customModelEnabled"),
+    customModel: $("customModel"),
+    catalogStatus: $("catalogStatus"),
+    verificationStatus: $("verificationStatus"),
+    refreshModels: $("refreshModels"),
+    verifyProvider: $("verifyProvider"),
+    showIncompatible: $("showIncompatible"),
+    testHelp: $("testHelp"),
+  };
+
+  setup = globalThis.Echo360ProviderSetup.mount({
+    storageKey: STORAGE_KEY,
+    localBackendEnabled: enableLocalBackend,
+    elements,
+    onProfileChange: profileChanged,
+    onApiKeyChange(provider, value) {
+      localApiKeys[provider] = value;
+      dirtyKeys.add(provider);
+      scheduleAutoSave();
+    },
+    persistApiKeys: false,
   });
-}
 
-function storageSet(items) {
-  if (usesPromiseApi) return extensionApi.storage.local.set(items);
-  return new Promise((resolve, reject) => {
-    extensionApi.storage.local.set(items, () => {
-      const err = extensionApi.runtime?.lastError;
-      if (err) reject(new Error(err.message || String(err)));
-      else resolve();
-    });
+  $("provider").addEventListener("change", () => {
+    const oldProvider = activeProvider;
+    const oldKey = $("apiKey").value.trim();
+    if (!configApi.KEYLESS_PROVIDERS.has(oldProvider)) {
+      localApiKeys[oldProvider] = oldKey;
+      dirtyKeys.add(oldProvider);
+      setup.syncConfiguration({ keys: { [oldProvider]: oldKey } });
+    }
+    activeProvider = $("provider").value;
+    selectionDirty = true;
+    updateProviderHint();
+    scheduleAutoSave(true);
+  }, true);
+  $("apiKey").addEventListener("input", (event) => {
+    const provider = event.target.dataset.forProvider;
+    if (!provider) return;
+    localApiKeys[provider] = event.target.value.trim();
+    dirtyKeys.add(provider);
+    scheduleAutoSave();
   });
-}
-
-function presetValue(preset) {
-  return `${preset.provider}|${preset.model}|${preset.endpoint}`;
-}
-
-function findPreset(config) {
-  return modelPresets.find((preset) =>
-    preset.provider === config.provider &&
-    preset.model === (config.model || "") &&
-    preset.endpoint === (config.endpoint || "")
-  );
-}
-
-function ensurePresetOption(config) {
-  if (isKeylessProvider(config.provider)) {
-    config.model = "";
-    config.endpoint = "";
-  }
-  const existing = findPreset(config);
-  if (existing) return existing;
-  const provider = config.provider || defaultConfig.provider;
-  const model = config.model || "";
-  const endpoint = config.endpoint || "";
-  const label = model ? `${provider} - ${model}` : provider;
-  const custom = { provider, model, endpoint, label };
-  modelPresets.push(custom);
-  return custom;
-}
-
-function renderModelOptions(selectedPreset) {
-  const select = document.getElementById("modelPreset");
-  select.innerHTML = "";
-  for (const preset of modelPresets) {
-    const option = document.createElement("option");
-    option.value = presetValue(preset);
-    option.textContent = preset.label;
-    select.appendChild(option);
-  }
-  select.value = presetValue(selectedPreset);
-}
-
-function selectedProvider() {
-  return document.getElementById("modelPreset").value.split("|")[0] || defaultConfig.provider;
-}
-
-// In-memory map of provider → API key, populated on load and updated on switch.
-// Lets users switch providers freely without losing each key they've typed.
-let localApiKeys = {};
-
-function refreshProviderUi() {
-  const provider = selectedProvider();
-  const isKeyless = isKeylessProvider(provider);
-  const apiKeyEl = document.getElementById("apiKey");
-  document.getElementById("providerHint").textContent = providerHints[provider] || "";
-  document.getElementById("apiKeyHint").textContent = isKeyless
-    ? "Google Translate 不需要 API Key；如果翻译质量不理想，请切换到 AI/API 模型。"
-    : "API Key 只保存在 Chrome 本地 storage。";
-  apiKeyEl.disabled = isKeyless;
-  apiKeyEl.placeholder = isKeyless ? "Google Translate 不需要 API Key" : "请输入你的 API Key";
-  if (isKeyless) {
-    apiKeyEl.value = "";
-    apiKeyEl.dataset.forProvider = "";
-  } else {
-    apiKeyEl.value = localApiKeys[provider] || "";
-    apiKeyEl.dataset.forProvider = provider;
-  }
-}
-
-async function loadConfig() {
-  const { [STORAGE_KEY]: value } = await storageGet(STORAGE_KEY);
-  const config = { ...defaultConfig, ...(value || {}) };
-  localApiKeys = buildKeyMap(config);
-  const selectedPreset = ensurePresetOption(config);
-  renderModelOptions(selectedPreset);
-  refreshProviderUi();
-}
-
-// Persists only the apiKeys map (merged with whatever else is currently
-// stored) so a key typed for a provider isn't lost if the user switches
-// providers or closes the popup without clicking "保存".
-async function persistApiKeysOnly() {
-  try {
-    const { [STORAGE_KEY]: value } = await storageGet(STORAGE_KEY);
-    const merged = { ...defaultConfig, ...(value || {}), apiKeys: { ...(value?.apiKeys || {}), ...localApiKeys } };
-    await storageSet({ [STORAGE_KEY]: merged });
-  } catch (_) {
-    // Best-effort only; an explicit "保存" click still persists everything.
-  }
-}
-
-// Keeps the popup in sync when the options page (or another popup instance)
-// changes the stored config, without clobbering a key the user is mid-typing.
-function isEditingApiKey() {
-  return document.activeElement === document.getElementById("apiKey");
-}
-
-function handleExternalConfigChange(newConfig) {
-  if (!newConfig) return;
-  localApiKeys = buildKeyMap(newConfig);
-  if (!isEditingApiKey()) refreshProviderUi();
-}
-
-extensionApi.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local" || !changes[STORAGE_KEY]) return;
-  handleExternalConfigChange(changes[STORAGE_KEY].newValue);
-});
-
-function openOptionsPage() {
-  if (extensionApi.runtime?.openOptionsPage) {
-    const result = extensionApi.runtime.openOptionsPage();
+  $("apiKey").addEventListener("change", (event) => {
+    const provider = event.target.dataset.forProvider;
+    if (!provider) return;
+    const value = event.target.value.trim();
+    localApiKeys[provider] = value;
+    dirtyKeys.add(provider);
+    scheduleAutoSave(true);
+  });
+  $("retrySaveBtn")?.addEventListener("click", () => flushAutoSave());
+  for (const id of ["apiKey", "customModel"]) $(id)?.addEventListener("blur", () => {
+    if (hasStagedData()) scheduleAutoSave(true);
+  });
+  window.addEventListener("pagehide", () => { if (hasStagedData()) flushAutoSave(); });
+  $("optionsBtn").addEventListener("click", () => {
+    const result = globalThis.Echo360ExtensionApi.raw.runtime.openOptionsPage?.();
     if (result && typeof result.catch === "function") result.catch(() => {});
-    return;
-  }
-  extensionApi.tabs?.create?.({ url: extensionApi.runtime.getURL("options.html") });
-}
+  });
+  api.storage.onChanged.addListener(onExternalConfigChange);
 
-async function saveConfig() {
-  const status = document.getElementById("status");
-  const saveBtn = document.getElementById("saveBtn");
-  saveBtn.disabled = true;
-  status.textContent = "";
-  status.style.color = "";
-
-  try {
-    const { [STORAGE_KEY]: value } = await storageGet(STORAGE_KEY);
-    const [provider, model, endpoint] = document.getElementById("modelPreset").value.split("|");
-    stashKey(localApiKeys, provider, document.getElementById("apiKey").value);
-    // Merge in whatever is currently in storage in case it changed elsewhere
-    // (e.g. the options page) more recently than our own onChanged listener caught up.
-    const mergedKeys = { ...(value?.apiKeys || {}), ...localApiKeys };
-    const config = {
-      ...defaultConfig,
-      ...(value || {}),
-      provider,
-      model,
-      endpoint,
-      ...resolveForSave(mergedKeys, provider),
-      useLocalBackend: enableLocalBackend && !!(value || {}).useLocalBackend,
-    };
-    await storageSet({ [STORAGE_KEY]: config });
-    status.textContent = "已保存";
-    status.style.color = "";
-  } catch (err) {
-    status.textContent = `保存失败：${err?.message || String(err)}`;
-    status.style.color = "#a22";
-  } finally {
-    saveBtn.disabled = false;
-  }
-}
-
-document.getElementById("saveBtn").addEventListener("click", saveConfig);
-document.getElementById("optionsBtn").addEventListener("click", openOptionsPage);
-document.getElementById("modelPreset").addEventListener("change", () => {
-  // Before switching, stash whatever the user typed for the previous provider
-  // and persist it immediately so it survives even without an explicit save.
-  const apiKeyEl = document.getElementById("apiKey");
-  const prevProvider = apiKeyEl.dataset.forProvider;
-  stashKey(localApiKeys, prevProvider, apiKeyEl.value);
-  refreshProviderUi();
-  persistApiKeysOnly();
-});
-document.getElementById("apiKey").addEventListener("change", (event) => {
-  // Fires on blur when the value changed; persists a typed key even if the
-  // user closes the popup instead of clicking "保存".
-  const provider = event.target.dataset.forProvider;
-  stashKey(localApiKeys, provider, event.target.value);
-  persistApiKeysOnly();
-});
-loadConfig().catch((err) => {
-  const status = document.getElementById("status");
-  status.textContent = `加载失败：${err?.message || String(err)}`;
-  status.style.color = "#a22";
-});
+  loadConfig().catch((error) => setSaveStatus(`加载失败：${error?.message || String(error)}`, true));
+})();

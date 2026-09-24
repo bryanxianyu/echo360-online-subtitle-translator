@@ -25,16 +25,11 @@ JOB_TTL_SECONDS = 60 * 60
 JOB_MAX_COUNT = 100
 CACHE_KEY_VERSION = "v2"
 KEYLESS_PROVIDERS = {"google-web"}
-WEB_PROVIDER_LIMITS = {
-    "google-web": {"concurrency": 96, "max_chars": 1200, "max_paragraphs": 10, "timeout": 10.0},
-}
-
-
 class TranslateRequest(BaseModel):
     vtt_text: str = Field(..., min_length=1)
     api_key: str = ""
     provider: str = "deepseek"
-    model: str = "deepseek-v4-flash"
+    model: str = ""
     endpoint: str = ""
     target: str = "ZH"
     max_paragraphs: int = 6
@@ -45,6 +40,7 @@ class TranslateRequest(BaseModel):
     bilingual: bool = False
     timeout: int | None = None
     reasoning_effort: str | None = None
+    openai_api_protocol: str = "responses"
     deepseek_thinking_mode: str = "disabled"
     deepl_formality: str = ""
     fallback_mode: str = "immediate"
@@ -94,15 +90,13 @@ async def private_network_access_middleware(request, call_next):
     return response
 
 
-def allowed_reasoning_for_model(model: str) -> set[str]:
+def allowed_reasoning_for_model(model: str) -> set[str] | None:
     m = (model or "").lower()
     if m.startswith("gpt-5.4"):
         return {"none", "low", "medium", "high", "xhigh"}
     if m.startswith("gpt-5"):
         return {"minimal", "low", "medium", "high"}
-    if m.startswith("gpt-4.1") or m.startswith("gpt-4o-mini"):
-        return {"low"}
-    return {"low"}
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -124,8 +118,10 @@ def get_supported_args() -> set[str]:
     for flag in (
         "--request-timeout",
         "--openai-reasoning-effort",
+        "--openai-api-protocol",
         "--no-thinking",
         "--with-thinking",
+        "--omit-thinking",
         "--deepl-formality",
         "--fallback-mode",
         "--repair-concurrency",
@@ -175,11 +171,6 @@ def build_translator_args(
     max_chars = int(req.max_chars)
     max_paragraphs = int(req.max_paragraphs)
     limit_key = web_provider_limit_key(provider_name)
-    if limit_key:
-        limits = WEB_PROVIDER_LIMITS[limit_key]
-        concurrency = max(1, min(concurrency, int(limits["concurrency"])))
-        max_chars = max(100, min(max_chars, int(limits["max_chars"])))
-        max_paragraphs = int(limits["max_paragraphs"])
 
     args = [
         get_translator_python(),
@@ -208,8 +199,6 @@ def build_translator_args(
     ]
     if "--request-timeout" in supported_args:
         timeout = float(req.timeout) if req.timeout is not None else 10.0
-        if limit_key:
-            timeout = min(timeout, float(WEB_PROVIDER_LIMITS[limit_key]["timeout"]))
         args.extend(["--request-timeout", str(timeout)])
     elif req.timeout is not None:
         warnings.append("translator script does not support --request-timeout, skipped")
@@ -222,12 +211,21 @@ def build_translator_args(
             args.extend(["--openai-reasoning-effort", req.reasoning_effort])
         else:
             warnings.append("translator script does not support --openai-reasoning-effort yet, skipped")
+    if req.provider == "openai" and "--openai-api-protocol" in supported_args:
+        protocol = req.openai_api_protocol if req.openai_api_protocol in {"responses", "chat-completions"} else "responses"
+        args.extend(["--openai-api-protocol", protocol])
+    elif req.provider == "openai" and req.openai_api_protocol == "chat-completions":
+        warnings.append("translator script does not support --openai-api-protocol yet; using its default protocol")
     if req.provider == "deepseek":
         thinking_mode = (req.deepseek_thinking_mode or "disabled").strip().lower()
         if thinking_mode == "disabled" and "--no-thinking" in supported_args:
             args.append("--no-thinking")
         elif thinking_mode in {"enabled", "with-thinking"} and "--with-thinking" in supported_args:
             args.append("--with-thinking")
+        elif thinking_mode == "omit" and "--omit-thinking" in supported_args:
+            args.append("--omit-thinking")
+        elif thinking_mode == "omit":
+            warnings.append("translator script does not support omitting the DeepSeek thinking option yet")
     if req.provider == "deepl" and req.deepl_formality:
         if "--deepl-formality" in supported_args:
             args.extend(["--deepl-formality", req.deepl_formality])
@@ -254,6 +252,7 @@ def build_cache_key(vtt_text: str, req: TranslateRequest) -> str:
         "max_chars": req.max_chars,
         "bilingual": req.bilingual,
         "reasoning_effort": req.reasoning_effort,
+        "openai_api_protocol": req.openai_api_protocol,
         "deepseek_thinking_mode": req.deepseek_thinking_mode,
         "deepl_formality": req.deepl_formality,
         "fallback_mode": req.fallback_mode,
@@ -276,16 +275,13 @@ def run_translation(
     limit_key = web_provider_limit_key(provider_name)
     if provider_name not in KEYLESS_PROVIDERS and not (req.api_key or "").strip():
         raise HTTPException(status_code=400, detail=f"api_key is required for provider '{req.provider}'")
+    if provider_name in {"openai", "deepseek", "gemini"} and not (req.model or "").strip():
+        raise HTTPException(status_code=400, detail=f"model is required for provider '{req.provider}'")
     if limit_key:
         warnings.append(f"{limit_key} is experimental and uses an unofficial web endpoint; stability is not guaranteed")
-        limits = WEB_PROVIDER_LIMITS[limit_key]
-        warnings.append(
-            f"{limit_key} uses capped backend settings: concurrency<={limits['concurrency']}, "
-            f"max_chars<={limits['max_chars']}, max_paragraphs={limits['max_paragraphs']}"
-        )
     if req.reasoning_effort and req.provider == "openai":
         allowed = allowed_reasoning_for_model(req.model)
-        if req.reasoning_effort not in allowed:
+        if allowed is not None and req.reasoning_effort not in allowed:
             raise HTTPException(
                 status_code=400,
                 detail=(

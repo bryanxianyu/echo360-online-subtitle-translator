@@ -1,4 +1,4 @@
-importScripts("build_config.js", "browser_api.js", "direct_translator.js");
+importScripts("build_config.js", "browser_api.js", "provider_config.js", "direct_translator.js", "provider_catalog.js");
 
 const extensionApi = globalThis.Echo360ExtensionApi;
 const buildConfig = globalThis.Echo360BuildConfig || {};
@@ -24,12 +24,15 @@ async function buildDirectCacheKey(payload) {
     vtt_text: payload.vtt_text || "",
     provider: payload.provider || "",
     model: payload.model || "",
-    endpoint: payload.endpoint || "",
+    endpoint: payload.provider === "deepl"
+      ? Echo360ProviderConfig.deeplEndpointFor(payload.endpoint || "", "translate", payload.api_key || "")
+      : payload.endpoint || "",
     target: payload.target || "",
     max_paragraphs: payload.max_paragraphs || 0,
     max_chars: payload.max_chars || 0,
     bilingual: !!payload.bilingual,
     reasoning_effort: payload.reasoning_effort || "",
+    openai_api_protocol: payload.openai_api_protocol || "responses",
     deepseek_thinking_mode: payload.deepseek_thinking_mode || "",
     deepl_formality: payload.deepl_formality || "",
     fallback_mode: payload.fallback_mode || "immediate",
@@ -112,7 +115,10 @@ async function resolveApiKey(provider) {
     const obj = await extensionApi.storage.local.get(STORAGE_KEY);
     const config = obj[STORAGE_KEY];
     if (!config) return "";
-    return config.apiKeys?.[provider] || config.apiKey || "";
+    if (config.apiKeys && Object.prototype.hasOwnProperty.call(config.apiKeys, provider)) {
+      return String(config.apiKeys[provider] || "");
+    }
+    return config.apiKey || "";
   } catch {
     return "";
   }
@@ -237,8 +243,12 @@ async function proxyBackendRequest(message) {
   }
 }
 
-extensionApi.runtime.addOnMessageListener(async (message) => {
+extensionApi.runtime.addOnMessageListener(async (message, sender) => {
   if (!message) return undefined;
+
+  if (["provider-discover", "provider-verify", "provider-cache", "provider-cancel"].includes(message.type)) {
+    return Echo360ProviderCatalog.handleMessage(message, sender);
+  }
 
   if (message.type === "direct-translate-async") {
     pruneDirectJobs();
@@ -271,8 +281,8 @@ extensionApi.runtime.addOnMessageListener(async (message) => {
   }
 
   if (message.type === "OPEN_OPTIONS_PAGE") {
-    chrome.runtime.openOptionsPage();
-    return undefined;
+    await chrome.runtime.openOptionsPage();
+    return { ok: true };
   }
 
   if (message.type !== "proxy-translate" && message.type !== "proxy-request") {

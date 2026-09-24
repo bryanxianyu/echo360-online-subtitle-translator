@@ -18,7 +18,7 @@
   function buildKeyMap(config) {
     const map = { ...(config?.apiKeys || {}) };
     const provider = config?.provider;
-    if (provider && config?.apiKey && !map[provider]) {
+    if (provider && config?.apiKey && !Object.prototype.hasOwnProperty.call(map, provider)) {
       map[provider] = config.apiKey;
     }
     return map;

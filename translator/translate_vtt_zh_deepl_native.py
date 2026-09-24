@@ -19,7 +19,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Callable, List
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
 
@@ -32,7 +32,7 @@ OPENAI_DEFAULT_CONCURRENCY = 96
 OPENAI_DEFAULT_MAX_RETRIES = 1
 OPENAI_DEFAULT_MAX_CHARS = 1200
 OPENAI_DEFAULT_MAX_PARAGRAPHS = 6
-OPENAI_DEFAULT_MODEL = "gpt-5-nano"
+OPENAI_DEFAULT_MODEL = ""
 OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 OPENAI_REASONING_EFFORT_CHOICES = {"none", "minimal", "low", "medium", "high", "xhigh"}
 
@@ -41,7 +41,7 @@ DEEPSEEK_DEFAULT_CONCURRENCY = 96
 DEEPSEEK_DEFAULT_MAX_RETRIES = 1
 DEEPSEEK_DEFAULT_MAX_CHARS = 1200
 DEEPSEEK_DEFAULT_MAX_PARAGRAPHS = 6
-DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash"
+DEEPSEEK_DEFAULT_MODEL = ""
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT = f"{DEEPSEEK_BASE_URL}/chat/completions"
 
@@ -50,7 +50,7 @@ GEMINI_DEFAULT_CONCURRENCY = 96
 GEMINI_DEFAULT_MAX_RETRIES = 1
 GEMINI_DEFAULT_MAX_CHARS = 1200
 GEMINI_DEFAULT_MAX_PARAGRAPHS = 6
-GEMINI_DEFAULT_MODEL = "gemini-3.1-flash-lite"
+GEMINI_DEFAULT_MODEL = ""
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 WEB_TRANSLATOR_DEFAULT_CHUNK_SIZE = 1
@@ -199,39 +199,70 @@ def provider_defaults(provider: str) -> dict[str, int | str]:
         "chunk": DEEPL_DEFAULT_CHUNK_SIZE,
         "concurrency": DEEPL_DEFAULT_CONCURRENCY,
         "max_retries": DEEPL_DEFAULT_MAX_RETRIES,
-        "endpoint": "https://api-free.deepl.com/v2/translate",
+        "endpoint": "",
         "model": "",
     }
 
 
-def normalize_openai_compatible_endpoint(endpoint: str, provider: str) -> str:
+def normalize_openai_compatible_endpoint(endpoint: str, provider: str, openai_api_protocol: str = "responses") -> str:
     ep = (endpoint or "").strip()
     if not ep:
         if provider == "openai":
-            return OPENAI_RESPONSES_ENDPOINT
+            route = "chat/completions" if openai_api_protocol == "chat-completions" else "responses"
+            return f"https://api.openai.com/v1/{route}"
         return DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT
 
-    if provider == "deepseek" and ep.startswith("https://api.deepseek.com"):
-        if ep.endswith("/chat/completions") or ep.endswith("/v1/chat/completions"):
-            return ep
-        return DEEPSEEK_CHAT_COMPLETIONS_ENDPOINT
+    parsed = urlsplit(ep)
+    path = parsed.path.rstrip("/")
+    if provider == "openai":
+        route = "chat/completions" if openai_api_protocol == "chat-completions" else "responses"
+        route_tail = re.compile(r"/(?:responses|chat/completions|models)$", re.IGNORECASE)
+        if route_tail.search(path):
+            path = route_tail.sub("", path)
+        # OpenAI-compatible gateways may expose their API under paths such as
+        # Gemini's /v1beta/openai. Preserve that base instead of adding /v1.
+        has_api_version = bool(re.search(r"(?:^|/)v\d+(?:beta|alpha)?$", path, re.IGNORECASE))
+        is_openai_compat_base = bool(re.search(r"(?:^|/)v\d+(?:beta|alpha)?/openai$|(?:^|/)openai/v\d+(?:beta|alpha)?$", path, re.IGNORECASE))
+        if not has_api_version and not is_openai_compat_base:
+            path = f"{path}/v1"
+        path = f"{path}/{route}"
+    elif provider == "deepseek":
+        if re.search(r"/(?:v\d+(?:beta|alpha)?/)?responses$", path, re.IGNORECASE):
+            raise ValueError("DeepSeek does not support the Responses API endpoint")
+        if not re.search(r"/chat/completions$", path, re.IGNORECASE):
+            path = f"{path}/chat/completions"
+    return urlunsplit(parsed._replace(path=re.sub(r"/{2,}", "/", path)))
 
-    if ep.endswith("/v1/responses"):
-        return ep
 
-    if provider == "openai" and ep.startswith("https://api.openai.com"):
-        return ep.rstrip("/") + "/v1/responses"
-
-    return ep
+def normalize_deepl_endpoint(endpoint: str, api_key: str, resource: str = "translate") -> str:
+    ep = (endpoint or "").strip()
+    if not ep:
+        cleaned_key = (api_key or "").strip().lower()
+        host = "https://api-free.deepl.com" if not cleaned_key or cleaned_key.endswith(":fx") else "https://api.deepl.com"
+        parsed = urlsplit(host)
+    else:
+        parsed = urlsplit(ep)
+    path = parsed.path.rstrip("/")
+    endpoint_tail = re.match(r"^(.*)/(v[12])/[^/]+$", path, re.IGNORECASE)
+    version_tail = re.match(r"^(.*)/(v[12])$", path, re.IGNORECASE)
+    if endpoint_tail:
+        path = f"{endpoint_tail.group(1)}/{endpoint_tail.group(2)}/{resource}"
+    elif version_tail:
+        path = f"{version_tail.group(1)}/{version_tail.group(2)}/{resource}"
+    elif not path:
+        path = f"/v2/{resource}"
+    else:
+        path = f"{path}/v2/{resource}"
+    return urlunsplit(parsed._replace(path=path))
 
 
 def normalize_gemini_endpoint(endpoint: str, model: str) -> str:
-    ep = (endpoint or GEMINI_BASE_URL).strip().rstrip("/")
-    if ep.endswith(":generateContent"):
-        return ep
-    if "/models/" in ep:
-        return f"{ep}:generateContent"
-    return f"{ep}/models/{model}:generateContent"
+    parsed = urlsplit((endpoint or GEMINI_BASE_URL).strip())
+    path = parsed.path.rstrip("/")
+    path = re.sub(r"/models/[^/]+(?::generateContent)?$", "", path, flags=re.IGNORECASE)
+    path = re.sub(r"/models$", "", path, flags=re.IGNORECASE)
+    path = f"{path}/models/{quote((model or '').removeprefix('models/'), safe='')}:generateContent"
+    return urlunsplit(parsed._replace(path=path))
 
 
 def split_voice_tag(line: str) -> tuple[str, str, str]:
@@ -298,31 +329,33 @@ def google_web_translate_batch(
         "User-Agent": "Mozilla/5.0",
         "Accept": "application/json,text/plain,*/*",
     })
-    out: list[str] = []
-    for text in texts:
-        url = (
-            "https://translate.googleapis.com/translate_a/single"
-            f"?client=gtx&sl=auto&tl={quote(target)}&dt=t&q={quote(text)}"
-        )
-        attempt = 0
-        while True:
-            try:
-                resp = session.get(url, timeout=request_timeout)
-                if resp.status_code != 200:
-                    raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
-                data = resp.json()
-                translated = "".join(
-                    part[0] for part in (data[0] or [])
-                    if isinstance(part, list) and part and isinstance(part[0], str)
-                ).strip()
-                out.append(translated or text)
-                break
-            except Exception:
-                if attempt >= max_retries:
-                    raise
-                attempt += 1
-                time.sleep(base_delay * attempt)
-    return out
+    request_text = "\n".join(texts)
+    url = (
+        "https://translate.googleapis.com/translate_a/single"
+        f"?client=gtx&sl=auto&tl={quote(target)}&dt=t&q={quote(request_text)}"
+    )
+    attempt = 0
+    while True:
+        try:
+            resp = session.get(url, timeout=request_timeout)
+            if resp.status_code != 200:
+                raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+            data = resp.json()
+            translated_text = "".join(
+                part[0] for part in (data[0] or [])
+                if isinstance(part, list) and part and isinstance(part[0], str)
+            ).strip()
+            translated = translated_text.splitlines()
+            if len(translated) != len(texts):
+                raise RuntimeError(
+                    f"Google Translate returned {len(translated)} lines for {len(texts)} inputs"
+                )
+            return translated
+        except Exception:
+            if attempt >= max_retries:
+                raise
+            attempt += 1
+            time.sleep(base_delay * attempt)
 
 
 def deepl_translate_batch(
@@ -490,18 +523,23 @@ def _openai_call_responses(
 
 def _resolve_openai_reasoning_effort(model: str, requested_effort: str) -> str:
     model_lower = (model or "").strip().lower()
-    effort = (requested_effort or "low").strip().lower()
+    effort = (requested_effort or "").strip().lower()
+    if not effort:
+        return ""
     if effort not in OPENAI_REASONING_EFFORT_CHOICES:
-        effort = "low"
+        raise ValueError(f"Unsupported OpenAI reasoning effort: {effort}")
 
-    # gpt-5.4 family supports none/low/medium/high/xhigh.
+    # Reject only known family incompatibilities. For unknown model families,
+    # pass an explicit user choice through so the API can validate it.
     if model_lower.startswith("gpt-5.4"):
-        return effort if effort in {"none", "low", "medium", "high", "xhigh"} else "low"
-    # gpt-5-nano family supports minimal/low/medium/high.
-    if model_lower.startswith("gpt-5"):
-        return effort if effort in {"minimal", "low", "medium", "high"} else "low"
-    # non GPT-5 models in this tool use low as the only exposed option.
-    return "low"
+        supported = {"none", "low", "medium", "high", "xhigh"}
+    elif model_lower.startswith("gpt-5"):
+        supported = {"minimal", "low", "medium", "high"}
+    else:
+        supported = None
+    if supported is not None and effort not in supported:
+        raise ValueError(f"Reasoning effort '{effort}' is not supported by model '{model}'")
+    return effort
 
 
 def _openai_call_chat_completions(
@@ -558,7 +596,11 @@ def _gemini_call_generate_content(
                 candidates = data.get("candidates", [])
                 if isinstance(candidates, list) and candidates:
                     parts = candidates[0].get("content", {}).get("parts", [])
-                    text = "".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
+                    text = "".join(
+                        part.get("text", "")
+                        for part in parts
+                        if isinstance(part, dict) and part.get("thought") is not True
+                    ).strip()
                     if text:
                         return text
                 raise RuntimeError("Gemini response missing candidates[0].content.parts text")
@@ -580,8 +622,27 @@ def openai_translate_batch(
     base_delay: float = 1.0,
     strict_json_fallback: bool = True,
     request_timeout: float = 90.0,
-    openai_reasoning_effort: str = "low",
+    openai_reasoning_effort: str = "",
+    api_protocol: str = "responses",
 ) -> List[str]:
+    if not (model or "").strip():
+        raise ValueError("A model ID is required for provider=openai")
+
+    if api_protocol == "chat-completions":
+        return chat_completions_translate_batch(
+            texts=texts,
+            api_key=api_key,
+            target_lang=target_lang,
+            model=model,
+            endpoint=endpoint,
+            max_retries=max_retries,
+            base_delay=base_delay,
+            strict_json_fallback=strict_json_fallback,
+            request_timeout=request_timeout,
+            provider_label="openai",
+            reasoning_effort=openai_reasoning_effort,
+        )
+
     def call(system_text: str, user_text: str) -> str:
         payload = {
             "model": model,
@@ -636,7 +697,11 @@ def chat_completions_translate_batch(
     request_timeout: float = 90.0,
     extra_body: dict | None = None,
     provider_label: str = "chat-completions",
+    reasoning_effort: str = "",
 ) -> List[str]:
+    if not (model or "").strip():
+        raise ValueError("A model ID is required for provider=chat-completions")
+
     def call(system_text: str, user_text: str) -> str:
         payload = {
             "model": model,
@@ -644,8 +709,13 @@ def chat_completions_translate_batch(
                 {"role": "system", "content": system_text},
                 {"role": "user", "content": user_text},
             ],
-            "temperature": 0,
         }
+        if provider_label != "openai":
+            payload["temperature"] = 0
+        if provider_label == "openai":
+            resolved_reasoning_effort = _resolve_openai_reasoning_effort(model, reasoning_effort)
+            if resolved_reasoning_effort:
+                payload["reasoning_effort"] = resolved_reasoning_effort
         if extra_body:
             payload.update(extra_body)
         return _openai_call_chat_completions(
@@ -683,8 +753,10 @@ def deepseek_translate_batch(
     base_delay: float = 1.0,
     strict_json_fallback: bool = True,
     request_timeout: float = 90.0,
-    no_thinking: bool = True,
+    no_thinking: bool | None = True,
 ) -> List[str]:
+    if not (model or "").strip():
+        raise ValueError("A model ID is required for provider=deepseek")
     return chat_completions_translate_batch(
         texts=texts,
         api_key=api_key,
@@ -695,7 +767,13 @@ def deepseek_translate_batch(
         base_delay=base_delay,
         strict_json_fallback=strict_json_fallback,
         request_timeout=request_timeout,
-        extra_body={"thinking": {"type": "disabled"}} if no_thinking else {"thinking": {"type": "enabled"}},
+        extra_body=(
+            {"thinking": {"type": "disabled"}}
+            if no_thinking is True
+            else {"thinking": {"type": "enabled"}}
+            if no_thinking is False
+            else None
+        ),
         provider_label="deepseek",
     )
 
@@ -711,6 +789,9 @@ def gemini_translate_batch(
     strict_json_fallback: bool = True,
     request_timeout: float = 90.0,
 ) -> List[str]:
+    if not (model or "").strip():
+        raise ValueError("A model ID is required for provider=gemini")
+
     def call(system_text: str, user_text: str) -> str:
         payload = {
             "systemInstruction": {"parts": [{"text": system_text}]},
@@ -746,7 +827,7 @@ def translate_lines_native(
     lines: List[str],
     api_key: str,
     provider: str = "deepl",
-    endpoint: str = "https://api-free.deepl.com/v2/translate",
+    endpoint: str = "",
     target_lang: str = "ZH",
     model: str = OPENAI_DEFAULT_MODEL,
     bilingual: bool = False,
@@ -766,14 +847,18 @@ def translate_lines_native(
     request_timeout: float = 90.0,
     slow_split_threshold: float = 0.0,
     repair_concurrency: int = 1,
-    no_thinking: bool = True,
-    openai_reasoning_effort: str = "low",
+    no_thinking: bool | None = True,
+    openai_reasoning_effort: str = "",
+    openai_api_protocol: str = "responses",
     deepl_formality: str = "",
 ) -> List[str]:
     provider_name = (provider or "deepl").strip().lower()
     if provider_name not in {"deepl", "openai", "deepseek", "gemini", "google-web"}:
         raise ValueError(f"Unsupported provider: {provider_name}")
-
+    if provider_name == "deepl":
+        endpoint = normalize_deepl_endpoint(endpoint, api_key)
+    if provider_name in {"openai", "deepseek", "gemini"} and not (model or "").strip():
+        raise ValueError(f"A model ID is required for provider={provider_name}")
     translatable_idx = [i for i, ln in enumerate(lines) if should_translate(ln)]
     line_parts = {i: split_voice_tag(lines[i]) for i in translatable_idx}
     source_texts = {i: line_parts[i][1] for i in translatable_idx}
@@ -816,11 +901,12 @@ def translate_lines_native(
                 api_key=api_key,
                 target_lang=target_lang,
                 model=model,
-                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name),
+                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name, openai_api_protocol),
                 max_retries=max_retries,
                 strict_json_fallback=not fastpath_only_main,
                 request_timeout=request_timeout,
                 openai_reasoning_effort=openai_reasoning_effort,
+                api_protocol=openai_api_protocol,
             )
         if provider_name == "deepseek":
             return deepseek_translate_batch(
@@ -828,7 +914,7 @@ def translate_lines_native(
                 api_key=api_key,
                 target_lang=target_lang,
                 model=model,
-                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name),
+                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name, openai_api_protocol),
                 max_retries=max_retries,
                 strict_json_fallback=not fastpath_only_main,
                 request_timeout=request_timeout,
@@ -868,11 +954,12 @@ def translate_lines_native(
                 api_key=api_key,
                 target_lang=target_lang,
                 model=model,
-                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name),
+                endpoint=normalize_openai_compatible_endpoint(endpoint, provider_name, openai_api_protocol),
                 max_retries=max_retries,
                 strict_json_fallback=True,
                 request_timeout=request_timeout,
                 openai_reasoning_effort=openai_reasoning_effort,
+                api_protocol=openai_api_protocol,
             )
         if provider_name == "deepseek":
             return deepseek_translate_batch(
@@ -1147,7 +1234,7 @@ def main():
     )
     ap.add_argument(
         "--endpoint",
-        default="https://api-free.deepl.com/v2/translate",
+        default="",
         help="Provider endpoint (DeepL Free/Pro, OpenAI Responses, or Chat Completions endpoint)",
     )
     ap.add_argument("--model", default="", help="Model name for openai/deepseek/gemini")
@@ -1164,12 +1251,15 @@ def main():
     ap.add_argument("--request-timeout", type=float, default=10.0, help="Per-request timeout in seconds")
     ap.add_argument(
         "--openai-reasoning-effort",
-        default="low",
+        default="",
         choices=sorted(OPENAI_REASONING_EFFORT_CHOICES),
-        help="OpenAI reasoning effort (default: low)",
+        help="Optional OpenAI reasoning effort; leave unset to omit the parameter",
     )
-    ap.add_argument("--no-thinking", action="store_true", help="DeepSeek only: disable thinking mode")
-    ap.add_argument("--with-thinking", action="store_true", help="DeepSeek only: enable thinking mode")
+    ap.add_argument("--openai-api-protocol", choices=["responses", "chat-completions"], default="responses", help="OpenAI-compatible API protocol")
+    thinking_group = ap.add_mutually_exclusive_group()
+    thinking_group.add_argument("--no-thinking", action="store_true", help="DeepSeek only: disable thinking mode")
+    thinking_group.add_argument("--with-thinking", action="store_true", help="DeepSeek only: enable thinking mode")
+    thinking_group.add_argument("--omit-thinking", action="store_true", help="DeepSeek only: omit the thinking option")
     ap.add_argument(
         "--deepl-formality",
         default="",
@@ -1226,9 +1316,14 @@ def main():
     }:
         resolved_endpoint = str(defaults["endpoint"])
     if args.provider in {"openai", "deepseek"}:
-        resolved_endpoint = normalize_openai_compatible_endpoint(resolved_endpoint, args.provider)
+        resolved_endpoint = normalize_openai_compatible_endpoint(resolved_endpoint, args.provider, args.openai_api_protocol)
+    if args.provider == "deepl":
+        resolved_endpoint = normalize_deepl_endpoint(resolved_endpoint, args.key)
 
     resolved_model = args.model or str(defaults["model"])
+    if args.provider in {"openai", "deepseek", "gemini"} and not resolved_model.strip():
+        print(f"ERROR: --model is required for provider={args.provider}; select a model in extension settings.", file=sys.stderr)
+        sys.exit(1)
     if args.provider == "gemini":
         resolved_endpoint = normalize_gemini_endpoint(resolved_endpoint, resolved_model)
     resolved_chunk = max(1, int(args.chunk if args.chunk is not None else defaults["chunk"]))
@@ -1270,8 +1365,9 @@ def main():
         request_timeout=max(1.0, float(args.request_timeout)),
         slow_split_threshold=max(0.0, float(args.slow_split_threshold)),
         repair_concurrency=max(1, int(args.repair_concurrency)),
-        no_thinking=(False if args.with_thinking else True),
+        no_thinking=None if args.omit_thinking else (False if args.with_thinking else True),
         openai_reasoning_effort=args.openai_reasoning_effort,
+        openai_api_protocol=args.openai_api_protocol,
         deepl_formality=args.deepl_formality,
     )
 

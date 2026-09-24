@@ -35,6 +35,7 @@ function setupStorage({ storageData = {}, enableLocalBackend = false } = {}) {
     },
   });
   window.Echo360Translator = ns;
+  evalModule("provider_config.js");
   evalModule("storage.js");
   return { storage: window.Echo360Translator.storage, localMock };
 }
